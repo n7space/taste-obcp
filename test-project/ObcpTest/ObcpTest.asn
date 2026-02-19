@@ -1,0 +1,51 @@
+OBCPTEST-DATAVIEW DEFINITIONS ::=
+BEGIN
+
+IMPORTS
+    T-UInt32,
+    T-Boolean
+FROM TASTE-BasicTypes;
+
+T-Float32 ::= REAL(-3.40282347E38 .. 3.40282347E38)
+
+OBCP-Channel-Id ::= T-UInt32
+OBCP-Event-Id ::= T-UInt32
+OBCP-Parameter-Id ::= T-UInt32
+OBCP-Step-Id ::= T-UInt32
+OBCP-Id ::= IA5String(SIZE(4)) -- Aligned with PUS C OBCP ID, actual size shall be adjusted by the user
+
+OBCP-Code ::= OCTET STRING(SIZE(0..8192)) -- Maximum size shall be adjusted by the user
+
+OBCP-Packet ::= OCTET STRING(SIZE(0..127)) -- Maximum size shall be adjusted by the user
+
+OBCP-Text ::= IA5String(SIZE(0..32)) -- Maximum size shall be adjusted by the user
+
+OBCP-Execution-Status ::= ENUMERATED {
+    inactive (0),
+    active-and-running (1),
+    active-and-held = (2)
+}
+
+OBCP-Observability-Level ::= ENUMERATED {
+    no-observability (0),
+    at-procedure-level (1),
+    at-step-level (2),
+    at-detailed-level (3)
+}
+
+OBCP-Parameter-Type ::= ENUMERATED {
+    integer-type,
+    enumerated-type,
+    boolean-type,
+    float-type
+}
+
+OBCP-Parameter-Value ::= CHOICE {
+    int-value T-UInt32,
+    enum-value T-UInt32,
+    float-value T-Float32,
+    bool-value T-Boolean
+}
+
+END
+
