@@ -8,7 +8,11 @@
     !! file. The up-to-date signatures can be found in the header file. !!
 */
 #include "obcp_engine.h"
-//#include <stdio.h>
+#include <string.h>
+// #include <stdio.h>
+
+/* Include obcpengine header from n7s-obcp */
+#include "obcpengine.h"
 
 #ifndef OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS
 #define OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS (8)
@@ -20,10 +24,10 @@
 
 typedef struct
 {
-    bool loaded;
-    asn1SccOBCP_Id id;
-    asn1SccOBCP_Code code;
-    asn1SccOBCP_Execution_Status status;
+   bool loaded;
+   asn1SccOBCP_Id id;
+   asn1SccOBCP_Code code;
+   asn1SccOBCP_Execution_Status status;
 } OBCP_Procedure;
 
 static OBCP_Procedure obcps[OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS] = {};
@@ -31,122 +35,289 @@ static uint32_t obcps_count = 0;
 
 typedef struct
 {
-    bool registered;
-    bool used;
-    asn1SccPID pid;
-    asn1SccOBCP_Id obcp_id;
-    uintptr_t native_thread_handle;
+   bool registered;
+   bool used;
+   asn1SccPID pid;
+   asn1SccOBCP_Id obcp_id;
+   uintptr_t native_thread_handle;
 } OBCP_Worker;
 
 static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS] = {};
 static uint32_t workers_count = 0;
 
+/* ===================================================================
+ * Wrapper functions to route obcpengine calls to TASTE RI functions
+ * =================================================================== */
+
+/* Wrapper for send_event */
+static void wrapper_send_event(const uint32_t event_id)
+{
+   asn1SccOBCP_Event_Id id = event_id;
+   obcp_engine_RI_send_event(&id);
+}
+
+/* Wrapper for output_message */
+static bool wrapper_output_message(const char *text, size_t length)
+{
+   asn1SccOBCP_Text msg;
+   /* Ensure we don't overflow the buffer (max 32 chars + null terminator) */
+   size_t copy_len = (length < 32) ? length : 32;
+   memcpy(msg, text, copy_len);
+   msg[copy_len] = '\0';
+   obcp_engine_RI_output_message(msg);
+   return true;
+}
+
+/* Wrapper for get_current_time */
+static bool wrapper_get_current_time(uint32_t *seconds, uint32_t *milliseconds)
+{
+   asn1SccT_Int32 sec, msec;
+   obcp_engine_RI_get_current_time(&sec, &msec);
+   *seconds = (uint32_t)sec;
+   *milliseconds = (uint32_t)msec;
+   return true;
+}
+
+/* Wrapper for read_int_parameter */
+static bool wrapper_read_int_parameter(const uint32_t id, int32_t *value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_integer_type;
+   asn1SccOBCP_Parameter_Value param_value;
+
+   obcp_engine_RI_get_parameter_value(&param_id, &param_type, &param_value);
+
+   if (param_value.kind == OBCP_Parameter_Value_int_value_PRESENT)
+   {
+      *value = (int32_t)param_value.u.int_value;
+      return true;
+   }
+   return false;
+}
+
+/* Wrapper for write_int_parameter */
+static bool wrapper_write_int_parameter(const uint32_t id, const int32_t value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Value param_value;
+   param_value.kind = OBCP_Parameter_Value_int_value_PRESENT;
+   param_value.u.int_value = (asn1SccT_UInt32)value;
+
+   obcp_engine_RI_set_parameter_value(&param_id, &param_value);
+   return true;
+}
+
+/* Wrapper for read_float_parameter */
+static bool wrapper_read_float_parameter(const uint32_t id, float *value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_float_type;
+   asn1SccOBCP_Parameter_Value param_value;
+
+   obcp_engine_RI_get_parameter_value(&param_id, &param_type, &param_value);
+
+   if (param_value.kind == OBCP_Parameter_Value_float_value_PRESENT)
+   {
+      *value = (float)param_value.u.float_value;
+      return true;
+   }
+   return false;
+}
+
+/* Wrapper for write_float_parameter */
+static bool wrapper_write_float_parameter(const uint32_t id, const float value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Value param_value;
+   param_value.kind = OBCP_Parameter_Value_float_value_PRESENT;
+   param_value.u.float_value = (asn1SccT_Float32)value;
+
+   obcp_engine_RI_set_parameter_value(&param_id, &param_value);
+   return true;
+}
+
+/* Wrapper for read_bool_parameter */
+static bool wrapper_read_bool_parameter(const uint32_t id, bool *value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_boolean_type;
+   asn1SccOBCP_Parameter_Value param_value;
+
+   obcp_engine_RI_get_parameter_value(&param_id, &param_type, &param_value);
+
+   if (param_value.kind == OBCP_Parameter_Value_bool_value_PRESENT)
+   {
+      *value = (bool)param_value.u.bool_value;
+      return true;
+   }
+   return false;
+}
+
+/* Wrapper for write_bool_parameter */
+static bool wrapper_write_bool_parameter(const uint32_t id, const bool value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Value param_value;
+   param_value.kind = OBCP_Parameter_Value_bool_value_PRESENT;
+   param_value.u.bool_value = (asn1SccT_Boolean)value;
+
+   obcp_engine_RI_set_parameter_value(&param_id, &param_value);
+   return true;
+}
+
+/* Compare two OBCP ids without relying on null termination. */
+static bool isObcpIdEqual(const asn1SccOBCP_Id id1, const asn1SccOBCP_Id id2)
+{
+   size_t n = sizeof(asn1SccOBCP_Id) - 1;
+   for (size_t i = 0; i < n; ++i)
+   {
+      if (id1[i] != id2[i])
+      {
+         return false;
+      }
+   }
+   return true;
+}
+
+/* Return index into `obcps` array for given id, or -1 if not found. */
+static int32_t getObcpIndex(const asn1SccOBCP_Id id)
+{
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
+   {
+      if (obcps[i].loaded && isObcpIdEqual(obcps[i].id, id))
+      {
+         return (int32_t)i;
+      }
+   }
+   return -1;
+}
+
 void obcp_engine_startup(void)
 {
-    obcps_count = 0;
-    for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; i++)
-    {
-        obcps[i].loaded = 0;
-    }
-    workers_count = 0;
-    for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS; i++)
-    {
-        workers[i].registered = 0;
-    }
+   obcps_count = 0;
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; i++)
+   {
+      obcps[i].loaded = 0;
+   }
+   workers_count = 0;
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS; i++)
+   {
+      workers[i].registered = 0;
+   }
+
+   /* Initialize obcpengine with callbacks to TASTE RI functions */
+   obcp_engine_context_t context = {
+       .obcp_engine_get_thread_local_value = NULL, /* Will use default */
+       .obcp_engine_set_thread_local_value = NULL, /* Will use default */
+       .obcp_read_int_parameter = wrapper_read_int_parameter,
+       .obcp_write_int_parameter = wrapper_write_int_parameter,
+       .obcp_read_float_parameter = wrapper_read_float_parameter,
+       .obcp_write_float_parameter = wrapper_write_float_parameter,
+       .obcp_read_bool_parameter = wrapper_read_bool_parameter,
+       .obcp_write_bool_parameter = wrapper_write_bool_parameter,
+       .obcp_send_event = wrapper_send_event,
+       .obcp_write = wrapper_output_message,
+       .obcp_beginstep = NULL, /* Not implemented yet */
+       .obcp_endstep = NULL,   /* Not implemented yet */
+       .obcp_wait = NULL,      /* Not implemented yet */
+       .obcp_waituntil = NULL, /* Not implemented yet */
+       .obcp_gettime = wrapper_get_current_time,
+       .obcp_is_packet_available = NULL,               /* Not implemented yet */
+       .obcp_get_channel_with_packet_available = NULL, /* Not implemented yet */
+       .obcp_can_send_packet = NULL,                   /* Not implemented yet */
+       .obcp_send_packet = NULL,                       /* Not implemented yet */
+       .obcp_receive_packet = NULL                     /* Not implemented yet */
+   };
+
+   obcpengine_init(&context);
 }
 
-void obcp_engine_PI_abort_obcp
-      (const asn1SccOBCP_Id *IN_id,
-       asn1SccT_Boolean *OUT_success)
+void obcp_engine_PI_abort_obcp(const asn1SccOBCP_Id *IN_id,
+                               asn1SccT_Boolean *OUT_success)
 
 {
    // Write your code here
 }
 
-
-void obcp_engine_PI_activate_obcp
-      (const asn1SccOBCP_Id *IN_id,
-       asn1SccT_Boolean *OUT_success)
+void obcp_engine_PI_activate_obcp(const asn1SccOBCP_Id *IN_id,
+                                  asn1SccT_Boolean *OUT_success)
 
 {
    // Write your code here
 }
 
-
-void obcp_engine_PI_can_obcp_be_activated
-      (const asn1SccOBCP_Id *IN_id,
-       asn1SccT_Boolean *OUT_success)
+void obcp_engine_PI_can_obcp_be_activated(const asn1SccOBCP_Id *IN_id,
+                                          asn1SccT_Boolean *OUT_success)
 
 {
    // Write your code here
 }
 
+void obcp_engine_PI_can_obcp_be_loaded(const asn1SccOBCP_Id *IN_id,
+                                       asn1SccT_Boolean *OUT_success)
 
-void obcp_engine_PI_can_obcp_be_loaded
-      (const asn1SccOBCP_Id *IN_id,
-       asn1SccT_Boolean *OUT_success)
+{
+   *OUT_success = FALSE;
+
+   /* Check if there is space for a new OBCP */
+   if (obcps_count >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS)
+   {
+      return;
+   }
+
+   /* Check if OBCP with this ID is already loaded */
+   if (getObcpIndex(*IN_id) >= 0)
+   {
+      return;
+   }
+
+   /* Space available and OBCP not already loaded */
+   *OUT_success = TRUE;
+}
+
+void obcp_engine_PI_get_obcp_status(const asn1SccOBCP_Id *IN_id,
+                                    asn1SccOBCP_Execution_Status *OUT_execution_status,
+                                    asn1SccT_Boolean *OUT_success)
 
 {
    // Write your code here
 }
 
-
-void obcp_engine_PI_get_obcp_status
-      (const asn1SccOBCP_Id *IN_id,
-       asn1SccOBCP_Execution_Status *OUT_execution_status,
-       asn1SccT_Boolean *OUT_success)
+void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
+                              const asn1SccOBCP_Code *IN_code,
+                              asn1SccT_Boolean *OUT_success)
 
 {
    // Write your code here
 }
 
-
-void obcp_engine_PI_load_obcp
-      (const asn1SccOBCP_Id *IN_id,
-       const asn1SccOBCP_Code *IN_code,
-       asn1SccT_Boolean *OUT_success)
+void obcp_engine_PI_receive_packet(const asn1SccOBCP_Channel_Id *IN_channel,
+                                   const asn1SccOBCP_Packet *IN_packet)
 
 {
    // Write your code here
 }
-
-
-void obcp_engine_PI_receive_packet
-      (const asn1SccOBCP_Channel_Id *IN_channel,
-       const asn1SccOBCP_Packet *IN_packet)
-
-{
-   // Write your code here
-}
-
 
 void obcp_engine_PI_start_obcp_engine(void)
 {
    // Write your code here
 }
 
-
-void obcp_engine_PI_stop_obcp
-      (const asn1SccOBCP_Id *IN_id,
-       asn1SccT_Boolean *OUT_success)
+void obcp_engine_PI_stop_obcp(const asn1SccOBCP_Id *IN_id,
+                              asn1SccT_Boolean *OUT_success)
 
 {
    // Write your code here
 }
-
 
 void obcp_engine_PI_stop_obcp_engine(void)
 {
    // Write your code here
 }
 
-
-void obcp_engine_PI_unload_obcp
-      (const asn1SccOBCP_Id *IN_id,
-       asn1SccT_Boolean *OUT_success)
+void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
+                                asn1SccT_Boolean *OUT_success)
 
 {
    // Write your code here
 }
-
-
