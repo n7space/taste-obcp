@@ -8,14 +8,13 @@
     !! file. The up-to-date signatures can be found in the header file. !!
 */
 #include "harness.h"
-//#include <stdio.h>
+#include <stdio.h>
+#include <string.h>
 
 
 void harness_startup(void)
 {
-   // Write your initialisation code
-   // You may call sporadic required interfaces and start timers
-   // puts ("[harness] Startup");
+   // NOP
 }
 
 void harness_PI_get_current_time
@@ -23,7 +22,7 @@ void harness_PI_get_current_time
        asn1SccT_Int32 *OUT_milliseconds)
 
 {
-   // Write your code here
+   // TODO
 }
 
 
@@ -33,7 +32,7 @@ void harness_PI_get_parameter_value
        asn1SccOBCP_Parameter_Value *OUT_parameter_value)
 
 {
-   // Write your code here
+   // TODO
 }
 
 
@@ -41,7 +40,7 @@ void harness_PI_output_message
       (const asn1SccOBCP_Text *IN_text)
 
 {
-   // Write your code here
+   printf(*IN_text);
 }
 
 
@@ -51,7 +50,7 @@ void harness_PI_send_packet
        asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   // TODO
 }
 
 
@@ -60,13 +59,49 @@ void harness_PI_set_parameter_value
        const asn1SccOBCP_Parameter_Value *IN_parameter_value)
 
 {
-   // Write your code here
+   // TODO
 }
 
 
 void harness_PI_trigger(void)
 {
-   // Write your code here
+   
+   static asn1SccOBCP_Execution_Status status;
+   static asn1SccOBCP_Id id = {'T','E','S','T','\0'};
+   static asn1SccOBCP_Code code;
+   static asn1SccT_Boolean ok;
+   static const char src[] = "import obcptime\nobcptime.wait(5000)\n";
+   memcpy(code.arr, src, strlen(src) + 1);
+   code.nCount = strlen(src) + 1;
+
+   static bool started = false;
+   if (started)
+   {
+      harness_RI_get_obcp_status(&id, &status, &ok);
+      if (!ok)
+      {
+         printf("Could not get OBCP status\n");
+      }
+      printf("OBCP status == %d\n", status);
+      return;
+   }
+   started = true;
+
+   harness_RI_start_obcp_engine();
+   harness_RI_load_obcp(&id, &code, &ok);
+   if (!ok)
+   {
+      printf("Could not load OBCP\n");
+      return;
+   }
+
+   harness_RI_activate_obcp(&id, &ok);
+   if (!ok)
+   {
+      printf("Could not activate OBCP\n");
+      return;
+   }
+
 }
 
 

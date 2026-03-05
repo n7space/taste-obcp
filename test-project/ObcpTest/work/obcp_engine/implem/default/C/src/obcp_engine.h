@@ -29,6 +29,9 @@ void obcp_engine_PI_can_obcp_be_activated( const asn1SccOBCP_Id *, asn1SccT_Bool
 void obcp_engine_PI_can_obcp_be_loaded( const asn1SccOBCP_Id *, asn1SccT_Boolean * );
 
 
+void obcp_engine_PI_do_work( const asn1SccT_Int32 * );
+
+
 void obcp_engine_PI_get_obcp_status( const asn1SccOBCP_Id *, asn1SccOBCP_Execution_Status *, asn1SccT_Boolean * );
 
 
@@ -36,6 +39,12 @@ void obcp_engine_PI_load_obcp( const asn1SccOBCP_Id *, const asn1SccOBCP_Code *,
 
 
 void obcp_engine_PI_receive_packet( const asn1SccOBCP_Channel_Id *, const asn1SccOBCP_Packet * );
+
+
+void obcp_engine_PI_register_worker( void );
+
+
+void obcp_engine_PI_release_worker( void );
 
 
 void obcp_engine_PI_start_obcp_engine( void );
@@ -50,10 +59,16 @@ void obcp_engine_PI_stop_obcp_engine( void );
 void obcp_engine_PI_unload_obcp( const asn1SccOBCP_Id *, asn1SccT_Boolean * );
 
 /* Required interfaces */
+extern void obcp_engine_RI_activate_worker( const asn1SccT_Int32 * );
+
+
 extern void obcp_engine_RI_get_current_time( asn1SccT_Int32 *, asn1SccT_Int32 * );
 
 
 extern void obcp_engine_RI_get_parameter_value( const asn1SccOBCP_Parameter_Id *, const asn1SccOBCP_Parameter_Type *, asn1SccOBCP_Parameter_Value * );
+
+
+extern void obcp_engine_RI_initiate_registration( void );
 
 
 extern void obcp_engine_RI_output_message( const asn1SccOBCP_Text * );

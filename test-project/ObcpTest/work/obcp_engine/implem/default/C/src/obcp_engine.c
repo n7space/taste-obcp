@@ -9,7 +9,23 @@
 */
 #include "obcp_engine.h"
 #include <string.h>
-// #include <stdio.h>
+
+/* Forward declarations for HAL functions (Hal.h uses extern "C" without a
+ * __cplusplus guard and cannot be included directly from C). */
+extern bool     Hal_SleepNs(uint64_t time_ns);
+extern uint64_t Hal_GetElapsedTimeInNs(void);
+
+#define MS_PER_SECOND     (1000U)
+#define NS_PER_MS         (1000000ULL)
+
+#define DEBUG
+
+#if defined(DEBUG) && defined(__unix__) 
+#include <stdio.h>
+#define DEBUG_PRINT(...) printf(__VA_ARGS__)
+#else
+#define DEBUG_PRINT(...) ((void)0)
+#endif
 
 /* Include obcpengine header from n7s-obcp */
 #include "obcpengine.h"
@@ -20,6 +36,10 @@
 
 #ifndef OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCP_WORKERS
 #define OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS (8)
+#endif
+
+#ifndef OBCP_MICROPYTHON_HEAP_SIZE
+#define OBCP_MICROPYTHON_HEAP_SIZE (65536)
 #endif
 
 typedef struct
@@ -40,10 +60,38 @@ typedef struct
    asn1SccPID pid;
    asn1SccOBCP_Id obcp_id;
    uintptr_t native_thread_handle;
+   char heap[OBCP_MICROPYTHON_HEAP_SIZE];
 } OBCP_Worker;
 
 static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS] = {};
 static uint32_t workers_count = 0;
+
+static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
+{
+   for (int32_t id = 0; id < (int32_t)workers_count; id++)
+   {
+      if (workers[id].pid == pid)
+      {
+         return id;
+      }
+   }
+   return -1;
+}
+
+static inline void clear_engine()
+{
+   obcps_count = 0;
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; i++)
+   {
+      obcps[i].loaded = 0;
+   }
+   workers_count = 0;
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS; i++)
+   {
+      workers[i].registered = 0;
+      workers[i].used = 0;
+   }
+}
 
 /* ===================================================================
  * Wrapper functions to route obcpengine calls to TASTE RI functions
@@ -64,7 +112,7 @@ static bool wrapper_output_message(const char *text, size_t length)
    size_t copy_len = (length < 32) ? length : 32;
    memcpy(msg, text, copy_len);
    msg[copy_len] = '\0';
-   obcp_engine_RI_output_message(msg);
+   obcp_engine_RI_output_message(&msg);
    return true;
 }
 
@@ -76,6 +124,24 @@ static bool wrapper_get_current_time(uint32_t *seconds, uint32_t *milliseconds)
    *seconds = (uint32_t)sec;
    *milliseconds = (uint32_t)msec;
    return true;
+}
+
+/* Wrapper for wait (relative delay in milliseconds) */
+static bool wrapper_wait(const uint32_t milliseconds)
+{
+   return Hal_SleepNs((uint64_t)milliseconds * NS_PER_MS);
+}
+
+/* Wrapper for waituntil (absolute time in seconds + milliseconds) */
+static bool wrapper_waituntil(const uint32_t target_seconds, const uint32_t target_milliseconds)
+{
+   const uint64_t target_ns = ((uint64_t)target_seconds * MS_PER_SECOND + target_milliseconds) * NS_PER_MS;
+   const uint64_t now_ns    = Hal_GetElapsedTimeInNs();
+   if (target_ns <= now_ns)
+   {
+      return true;
+   }
+   return Hal_SleepNs(target_ns - now_ns);
 }
 
 /* Wrapper for read_int_parameter */
@@ -194,16 +260,7 @@ static int32_t getObcpIndex(const asn1SccOBCP_Id id)
 
 void obcp_engine_startup(void)
 {
-   obcps_count = 0;
-   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; i++)
-   {
-      obcps[i].loaded = 0;
-   }
-   workers_count = 0;
-   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS; i++)
-   {
-      workers[i].registered = 0;
-   }
+   clear_engine();
 
    /* Initialize obcpengine with callbacks to TASTE RI functions */
    obcp_engine_context_t context = {
@@ -219,8 +276,8 @@ void obcp_engine_startup(void)
        .obcp_write = wrapper_output_message,
        .obcp_beginstep = NULL, /* Not implemented yet */
        .obcp_endstep = NULL,   /* Not implemented yet */
-       .obcp_wait = NULL,      /* Not implemented yet */
-       .obcp_waituntil = NULL, /* Not implemented yet */
+       .obcp_wait = wrapper_wait,
+       .obcp_waituntil = wrapper_waituntil,
        .obcp_gettime = wrapper_get_current_time,
        .obcp_is_packet_available = NULL,               /* Not implemented yet */
        .obcp_get_channel_with_packet_available = NULL, /* Not implemented yet */
@@ -236,21 +293,67 @@ void obcp_engine_PI_abort_obcp(const asn1SccOBCP_Id *IN_id,
                                asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   // TODO
 }
+
+extern void obcp_engine_RI_activate_worker_To_PID(asn1SccPID dest_pid, const asn1SccT_Int32 *IN_obcp_index);
 
 void obcp_engine_PI_activate_obcp(const asn1SccOBCP_Id *IN_id,
                                   asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   *OUT_success = FALSE;
+
+   asn1SccT_Boolean can_activate = FALSE;
+   obcp_engine_PI_can_obcp_be_activated(IN_id, &can_activate);
+   if (!can_activate)
+   {
+      return;
+   }
+
+   const int32_t obcp_index = getObcpIndex(*IN_id);
+   if (obcp_index < 0)
+   {
+      return;
+   }
+
+   for (uint32_t i = 0; i < workers_count; ++i)
+   {
+      if (workers[i].registered && !workers[i].used)
+      {
+         workers[i].used = true;
+         memcpy(workers[i].obcp_id, *IN_id, sizeof(asn1SccOBCP_Id));
+
+         asn1SccT_Int32 idx = (asn1SccT_Int32)obcp_index;
+
+         DEBUG_PRINT("Sending ACTIVATE to Worker[%d] PID %d\n", i, workers[i].pid);
+         obcp_engine_RI_activate_worker_To_PID(workers[i].pid, &idx);
+
+         *OUT_success = TRUE;
+         return;
+      }
+   }
 }
 
 void obcp_engine_PI_can_obcp_be_activated(const asn1SccOBCP_Id *IN_id,
                                           asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   *OUT_success = FALSE;
+
+   if (getObcpIndex(*IN_id) < 0)
+   {
+      return;
+   }
+
+   for (uint32_t i = 0; i < workers_count; ++i)
+   {
+      if (workers[i].registered && !workers[i].used)
+      {
+         *OUT_success = TRUE;
+         return;
+      }
+   }
 }
 
 void obcp_engine_PI_can_obcp_be_loaded(const asn1SccOBCP_Id *IN_id,
@@ -259,19 +362,16 @@ void obcp_engine_PI_can_obcp_be_loaded(const asn1SccOBCP_Id *IN_id,
 {
    *OUT_success = FALSE;
 
-   /* Check if there is space for a new OBCP */
    if (obcps_count >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS)
    {
       return;
    }
 
-   /* Check if OBCP with this ID is already loaded */
    if (getObcpIndex(*IN_id) >= 0)
    {
       return;
    }
 
-   /* Space available and OBCP not already loaded */
    *OUT_success = TRUE;
 }
 
@@ -280,7 +380,14 @@ void obcp_engine_PI_get_obcp_status(const asn1SccOBCP_Id *IN_id,
                                     asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   *OUT_success = FALSE;
+   const int32_t index = getObcpIndex(*IN_id);
+   if (index < 0)
+   {
+      return;
+   }
+   *OUT_execution_status = obcps[index].status;
+   *OUT_success = TRUE;
 }
 
 void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
@@ -288,36 +395,134 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
                               asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   *OUT_success = FALSE;
+
+   asn1SccT_Boolean can_load = FALSE;
+   obcp_engine_PI_can_obcp_be_loaded(IN_id, &can_load);
+   if (!can_load)
+   {
+      return;
+   }
+
+   for (uint32_t id = 0; id < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++id)
+   {
+      if (!obcps[id].loaded)
+      {
+         memcpy(obcps[id].id, *IN_id, sizeof(asn1SccOBCP_Id));
+         for (int i = 0; i < IN_code->nCount; i++)
+         {
+            obcps[id].code.arr[i] = IN_code->arr[i];
+         }
+         obcps[id].code.nCount = IN_code->nCount;
+         obcps[id].status = OBCP_Execution_Status_inactive;
+         obcps[id].loaded = true;
+         ++obcps_count;
+         *OUT_success = TRUE;
+         return;
+      }
+   }
 }
 
 void obcp_engine_PI_receive_packet(const asn1SccOBCP_Channel_Id *IN_channel,
                                    const asn1SccOBCP_Packet *IN_packet)
 
 {
-   // Write your code here
+   // TODO
 }
 
 void obcp_engine_PI_start_obcp_engine(void)
 {
-   // Write your code here
+   clear_engine();
+   obcp_engine_RI_initiate_registration();
 }
 
 void obcp_engine_PI_stop_obcp(const asn1SccOBCP_Id *IN_id,
                               asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   // TODO Issue stop to the indicated OBCP and wait until its worker is stopped
 }
 
 void obcp_engine_PI_stop_obcp_engine(void)
 {
-   // Write your code here
+    // TODO Issue abort to all active OBCPS and wait untill all workers are freed
 }
 
 void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
                                 asn1SccT_Boolean *OUT_success)
 
 {
-   // Write your code here
+   *OUT_success = FALSE;
+
+   const int32_t index = getObcpIndex(*IN_id);
+   if (index < 0)
+   {
+      return;
+   }
+
+   if (obcps[index].status != OBCP_Execution_Status_inactive)
+   {
+      return;
+   }
+
+   obcps[index].loaded = false;
+   obcps[index].code.nCount = 0;
+   --obcps_count;
+   *OUT_success = TRUE;
+}
+
+extern asn1SccPID obcp_engine_do_work_get_sender();
+
+void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
+{
+   const uint32_t idx = (uint32_t)(*obcp_index);
+   const asn1SccPID pid = obcp_engine_do_work_get_sender();
+
+   if (idx >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS || !obcps[idx].loaded)
+   {
+      return;
+   }
+
+   obcps[idx].status = OBCP_Execution_Status_active_and_running;
+   const int32_t worker_id = get_worker_id_by_pid(pid);
+
+   DEBUG_PRINT("DO WORK Worker[%d] PID %d\n", worker_id, pid);
+
+   obcpengine_execute_py(
+       (const char *)obcps[idx].code.arr,
+       (char *)(workers[worker_id].heap),
+       OBCP_MICROPYTHON_HEAP_SIZE);
+
+   obcps[idx].status = OBCP_Execution_Status_inactive;
+}
+
+extern asn1SccPID obcp_engine_release_worker_get_sender();
+
+void obcp_engine_PI_release_worker(void)
+{
+   const asn1SccPID pid = obcp_engine_release_worker_get_sender();
+   const int32_t id = get_worker_id_by_pid(pid);
+   if (id >= 0)
+   {
+      workers[id].used = false;
+   }
+   DEBUG_PRINT("RELEASE Worker[%d] PID %d\n", id, pid);
+}
+
+extern asn1SccPID obcp_engine_register_worker_get_sender();
+
+void obcp_engine_PI_register_worker()
+{
+   if (workers_count >= OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS)
+   {
+      return;
+   }
+   const uint32_t id = workers_count++;
+   const asn1SccPID pid = obcp_engine_register_worker_get_sender();
+
+   workers[id].pid = pid;
+   workers[id].registered = true;
+   workers[id].used = false;
+
+   DEBUG_PRINT("REGISTERED Worker[%d] as PID %d\n", id, pid);
 }
