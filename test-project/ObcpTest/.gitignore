@@ -21,3 +21,8 @@ work/harness/implem/default/C/wrappers
 work/harness/implem/default/C/src/*.h
 work/harness/implem/default/C/*.pro
 work/harness/implem/default/*.pro
+work/tmpworker/SDL/*
+work/tmpworker/SDL/code
+work/tmpworker/SDL/wrappers
+work/tmpworker/SDL/src
+!work/tmpworker/SDL/src/tmpworker.pr
