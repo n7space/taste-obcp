@@ -22,6 +22,10 @@
 #define MICROPY_PY_BUILTINS_FLOAT               (1)
 #define MICROPY_ERROR_REPORTING (MICROPY_ERROR_REPORTING_DETAILED)
 
+/* Enable concurrent OBCP execution: each worker thread gets its own
+ * MicroPython state via thread-local storage. */
+#define OBCP_ENABLE_CONCURRENT_OBCPS
+
 #ifdef OBCP_ENABLE_CONCURRENT_OBCPS
 // Enable support for concurrent OBCPs
 // The approach is derived from ESA's Micropython evolution for Leon processors,

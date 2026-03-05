@@ -10,6 +10,9 @@
 #include "harness.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <unistd.h>
 
 
 void harness_startup(void)
@@ -63,45 +66,131 @@ void harness_PI_set_parameter_value
 }
 
 
+/* -----------------------------------------------------------------------
+ * Harness OBCP definitions
+ * ----------------------------------------------------------------------- */
+
+typedef struct {
+   asn1SccOBCP_Id   id;
+   const char      *src;
+} Harness_ObcpDef;
+
+static const Harness_ObcpDef OBCP_TEST1 = {
+   .id  = {'T','E','S','T','1'},
+   .src = "import obcptime\nobcptime.wait(3000)\n"
+};
+
+static const Harness_ObcpDef OBCP_TEST2 = {
+   .id  = {'T','E','S','T','2'},
+   .src = "import obcptime\nobcptime.wait(5000)\n"
+};
+
+static const Harness_ObcpDef OBCP_TEST3 = {
+   .id  = {'T','E','S','T','3'},
+   .src = "import obcptime\nobcptime.wait(3000)\n"
+};
+
+/* -----------------------------------------------------------------------
+ * Helpers
+ * ----------------------------------------------------------------------- */
+
+static bool load_obcp(const Harness_ObcpDef *def)
+{
+   asn1SccOBCP_Code code;
+   const size_t len = strlen(def->src) + 1;
+   memcpy(code.arr, def->src, len);
+   code.nCount = (int)len;
+
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_load_obcp(&def->id, &code, &ok);
+   if (!ok) {
+      printf("Could not load OBCP %.5s\n", def->id);
+   }
+   return (bool)ok;
+}
+
+static bool activate_obcp(const Harness_ObcpDef *def)
+{
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_activate_obcp(&def->id, &ok);
+   if (!ok) {
+      printf("Could not activate OBCP %.5s\n", def->id);
+   }
+   return (bool)ok;
+}
+
+static asn1SccOBCP_Execution_Status get_status(const Harness_ObcpDef *def)
+{
+   asn1SccOBCP_Execution_Status status = OBCP_Execution_Status_inactive;
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_get_obcp_status(&def->id, &status, &ok);
+   if (!ok) {
+      printf("Could not get status for OBCP %.5s\n", def->id);
+   }
+   return status;
+}
+
+/* -----------------------------------------------------------------------
+ * Trigger state machine
+ * ----------------------------------------------------------------------- */
+
+typedef enum {
+   PHASE_INIT,
+   PHASE_WAIT_FOR_TEST1,
+   PHASE_ALL_RUNNING,
+} Harness_Phase;
+
 void harness_PI_trigger(void)
 {
-   
-   static asn1SccOBCP_Execution_Status status;
-   static asn1SccOBCP_Id id = {'T','E','S','T','\0'};
-   static asn1SccOBCP_Code code;
-   static asn1SccT_Boolean ok;
-   static const char src[] = "import obcptime\nobcptime.wait(5000)\n";
-   memcpy(code.arr, src, strlen(src) + 1);
-   code.nCount = strlen(src) + 1;
+   static Harness_Phase phase = PHASE_INIT;
 
-   static bool started = false;
-   if (started)
-   {
-      harness_RI_get_obcp_status(&id, &status, &ok);
-      if (!ok)
-      {
-         printf("Could not get OBCP status\n");
+   printf("Status — TEST1: %d  TEST2: %d  TEST3: %d\n",
+          get_status(&OBCP_TEST1),
+          get_status(&OBCP_TEST2),
+          get_status(&OBCP_TEST3));
+
+   switch (phase) {
+
+      case PHASE_INIT: {
+         harness_RI_start_obcp_engine();
+
+         /* Load all three OBCPs up front */
+         if (!load_obcp(&OBCP_TEST1)) return;
+         if (!load_obcp(&OBCP_TEST2)) return;
+         if (!load_obcp(&OBCP_TEST3)) return;
+
+         /* TEST1 and TEST2 start immediately; TEST3 waits for TEST1 */
+         if (!activate_obcp(&OBCP_TEST1)) return;
+         if (!activate_obcp(&OBCP_TEST2)) return;
+
+         printf("TEST1 (3 s) and TEST2 (5 s) activated\n");
+         phase = PHASE_WAIT_FOR_TEST1;
+         break;
       }
-      printf("OBCP status == %d\n", status);
-      return;
-   }
-   started = true;
 
-   harness_RI_start_obcp_engine();
-   harness_RI_load_obcp(&id, &code, &ok);
-   if (!ok)
-   {
-      printf("Could not load OBCP\n");
-      return;
-   }
+      case PHASE_WAIT_FOR_TEST1: {
+         const asn1SccOBCP_Execution_Status s1 = get_status(&OBCP_TEST1);
 
-   harness_RI_activate_obcp(&id, &ok);
-   if (!ok)
-   {
-      printf("Could not activate OBCP\n");
-      return;
-   }
+         if (s1 == OBCP_Execution_Status_inactive) {
+            printf("TEST1 finished — activating TEST3 (3 s)\n");
+            if (!activate_obcp(&OBCP_TEST3)) return;
+            phase = PHASE_ALL_RUNNING;
+         }
+         break;
+      }
 
+      case PHASE_ALL_RUNNING: {
+         const asn1SccOBCP_Execution_Status s2 = get_status(&OBCP_TEST2);
+         const asn1SccOBCP_Execution_Status s3 = get_status(&OBCP_TEST3);
+         if (s2 == OBCP_Execution_Status_inactive &&
+             s3 == OBCP_Execution_Status_inactive)
+         {
+            printf("All OBCPs finished — exiting\n");
+            kill(getpid(), SIGTERM);
+         }
+         break;
+      }
+   }
 }
 
 

@@ -263,6 +263,41 @@
     </Implementations>
 </Function>
 
+<Function id="{aecefbae-e444-4385-8a08-12dbc0212424}" name="tmpworker2" is_type="NO" language="SDL" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_max="1" startup_priority="1" instances_min="1">
+    <Property name="TASTE_IV_Properties::Default_Codegen" value="Ada"/>
+<Provided_Interface id="{2dc5551b-4657-4159-828b-2f3e6d2bee67}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Provided_Interface id="{95376d60-9096-40f2-8677-d6f1ea2338f4}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" priority="1" queue_size="1" wcet="0" stack_size="1024" miat="0">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Required_Interface id="{5460e0af-b020-4360-a72a-10466eb78664}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{49c7c153-170a-4b3e-8a93-409b36ba1545}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" wcet="0" is_observable="false">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{e5013b6b-0363-4edf-9d7a-5fc29f0fd11f}" name="release_worker" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+    <Implementations>
+        <Implementation name="default" language="SDL"/>
+    </Implementations>
+</Function>
+
+<Connection id="{e906d388-9064-432e-ab6d-0ea74ec9cf89}" required_system_element="NO">
+    <Source iface_id="{49c7c153-170a-4b3e-8a93-409b36ba1545}" func_name="tmpworker2" ri_name="do_work" />
+    <Target iface_id="{20615ef0-d789-4d75-ac2d-1fd006fe986a}" func_name="obcp_engine" pi_name="do_work" />
+</Connection>
+
 <Connection id="{fcfbdfee-0a26-46d8-8a76-ca234d3a3c38}" required_system_element="NO">
     <Source iface_id="{aa732094-152f-445d-aefc-1d40780ca78e}" func_name="tmpworker" ri_name="release_worker" />
     <Target iface_id="{bafaf52e-2e2a-46a7-a460-143910aba67d}" func_name="obcp_engine" pi_name="release_worker" />
@@ -276,6 +311,11 @@
 <Connection id="{43caceee-3303-4916-8254-42efaab6fbf3}" required_system_element="NO">
     <Source iface_id="{cbcc4a24-a149-41d5-a836-5875a522ce40}" func_name="harness" ri_name="activate_obcp" />
     <Target iface_id="{165c59b5-4b84-47f1-b440-2615e0000733}" func_name="obcp_engine" pi_name="activate_obcp" />
+</Connection>
+
+<Connection id="{61f5ea67-edd1-4122-937d-e01767db6623}" required_system_element="NO">
+    <Source iface_id="{5460e0af-b020-4360-a72a-10466eb78664}" func_name="tmpworker2" ri_name="register_worker" />
+    <Target iface_id="{92b12854-ae1b-40e9-be7d-507e944342b9}" func_name="obcp_engine" pi_name="register_worker" />
 </Connection>
 
 <Connection id="{51193b7c-7a12-40ce-a3f2-15a9939ab75c}" required_system_element="NO">
@@ -323,9 +363,19 @@
     <Target iface_id="{03bb5c20-3ac4-4c6e-8588-2f044792cfde}" func_name="obcp_engine" pi_name="unload_obcp" />
 </Connection>
 
+<Connection id="{368d6156-5105-47a0-8f0a-4e2716d60e31}" required_system_element="NO">
+    <Source iface_id="{a6892e14-7ef8-4555-88b5-14dfc3b399e9}" func_name="obcp_engine" ri_name="initiate_registration" />
+    <Target iface_id="{2dc5551b-4657-4159-828b-2f3e6d2bee67}" func_name="tmpworker2" pi_name="initiate_registration" />
+</Connection>
+
 <Connection id="{6773143f-e1da-4631-a154-a6a0fc1a8814}" required_system_element="NO">
     <Source iface_id="{9c107f94-d2ac-4c14-8850-7ddb1407147e}" func_name="harness" ri_name="stop_obcp_engine" />
     <Target iface_id="{2700bb56-a7bb-4d55-9b9f-7bd90b503727}" func_name="obcp_engine" pi_name="stop_obcp_engine" />
+</Connection>
+
+<Connection id="{456bf882-c7a4-4a4f-ad6e-eb0e25784f40}" required_system_element="NO">
+    <Source iface_id="{e5013b6b-0363-4edf-9d7a-5fc29f0fd11f}" func_name="tmpworker2" ri_name="release_worker" />
+    <Target iface_id="{bafaf52e-2e2a-46a7-a460-143910aba67d}" func_name="obcp_engine" pi_name="release_worker" />
 </Connection>
 
 <Connection id="{d1103277-df7d-4acd-b236-2156b3a85a33}" required_system_element="NO">
@@ -366,6 +416,11 @@
 <Connection id="{0304d9a8-362e-405c-aff1-7e268dd11c85}" required_system_element="NO">
     <Source iface_id="{7b6873b4-56c1-468f-92a1-c0690e2d14c9}" func_name="obcp_engine" ri_name="send_packet" />
     <Target iface_id="{427584a0-08f2-44a9-9e2d-563b81e455b9}" func_name="harness" pi_name="send_packet" />
+</Connection>
+
+<Connection id="{23cd0015-0284-460b-a79e-bd6444c483ca}" required_system_element="NO">
+    <Source iface_id="{70fa3b4c-a648-4509-b4e7-a5310acea3a9}" func_name="obcp_engine" ri_name="activate_worker" />
+    <Target iface_id="{95376d60-9096-40f2-8677-d6f1ea2338f4}" func_name="tmpworker2" pi_name="activate_worker" />
 </Connection>
 
 <Layer name="default" is_visible="true"/>

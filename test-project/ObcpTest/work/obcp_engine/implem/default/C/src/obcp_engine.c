@@ -60,11 +60,31 @@ typedef struct
    asn1SccPID pid;
    asn1SccOBCP_Id obcp_id;
    uintptr_t native_thread_handle;
-   char heap[OBCP_MICROPYTHON_HEAP_SIZE];
+   /* Union forces alignment to at least sizeof(uintptr_t), which is required
+    * by the MicroPython GC (VERIFY_PTR asserts word-aligned pointers). */
+   union {
+      char     bytes[OBCP_MICROPYTHON_HEAP_SIZE];
+      uintptr_t _align;
+   } heap;
 } OBCP_Worker;
 
 static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS] = {};
 static uint32_t workers_count = 0;
+
+/* Thread-local storage for the MicroPython state pointer.
+ * Each POSIX thread (worker task) gets its own copy, which is required
+ * when OBCP_ENABLE_CONCURRENT_OBCPS is defined. */
+static __thread uintptr_t tls_values[obcp_thread_local_value_index_max];
+
+static uintptr_t tls_getter(uint32_t index)
+{
+   return tls_values[index];
+}
+
+static void tls_setter(uint32_t index, uintptr_t value)
+{
+   tls_values[index] = value;
+}
 
 static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
 {
@@ -234,7 +254,7 @@ static bool wrapper_write_bool_parameter(const uint32_t id, const bool value)
 /* Compare two OBCP ids without relying on null termination. */
 static bool isObcpIdEqual(const asn1SccOBCP_Id id1, const asn1SccOBCP_Id id2)
 {
-   size_t n = sizeof(asn1SccOBCP_Id) - 1;
+   size_t n = sizeof(asn1SccOBCP_Id);
    for (size_t i = 0; i < n; ++i)
    {
       if (id1[i] != id2[i])
@@ -264,8 +284,8 @@ void obcp_engine_startup(void)
 
    /* Initialize obcpengine with callbacks to TASTE RI functions */
    obcp_engine_context_t context = {
-       .obcp_engine_get_thread_local_value = NULL, /* Will use default */
-       .obcp_engine_set_thread_local_value = NULL, /* Will use default */
+       .obcp_engine_get_thread_local_value = tls_getter,
+       .obcp_engine_set_thread_local_value = tls_setter,
        .obcp_read_int_parameter = wrapper_read_int_parameter,
        .obcp_write_int_parameter = wrapper_write_int_parameter,
        .obcp_read_float_parameter = wrapper_read_float_parameter,
@@ -486,11 +506,18 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
    obcps[idx].status = OBCP_Execution_Status_active_and_running;
    const int32_t worker_id = get_worker_id_by_pid(pid);
 
+   if (worker_id < 0)
+   {
+      DEBUG_PRINT("DO WORK: unknown worker PID %d — aborting\n", pid);
+      obcps[idx].status = OBCP_Execution_Status_inactive;
+      return;
+   }
+
    DEBUG_PRINT("DO WORK Worker[%d] PID %d\n", worker_id, pid);
 
    obcpengine_execute_py(
        (const char *)obcps[idx].code.arr,
-       (char *)(workers[worker_id].heap),
+       workers[worker_id].heap.bytes,
        OBCP_MICROPYTHON_HEAP_SIZE);
 
    obcps[idx].status = OBCP_Execution_Status_inactive;

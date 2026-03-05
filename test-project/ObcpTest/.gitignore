@@ -26,3 +26,8 @@ work/tmpworker/SDL/code
 work/tmpworker/SDL/wrappers
 work/tmpworker/SDL/src
 !work/tmpworker/SDL/src/tmpworker.pr
+work/tmpworker2/SDL/*
+work/tmpworker2/SDL/code
+work/tmpworker2/SDL/wrappers
+work/tmpworker2/SDL/src
+!work/tmpworker2/SDL/src/tmpworker.pr
