@@ -8,6 +8,7 @@
     !! file. The up-to-date signatures can be found in the header file. !!
 */
 #include "obcp_engine.h"
+#include "obcp_engine_thread_local.h"
 #include <string.h>
 
 /* Forward declarations for HAL functions (Hal.h uses extern "C" without a
@@ -70,21 +71,6 @@ typedef struct
 
 static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS] = {};
 static uint32_t workers_count = 0;
-
-/* Thread-local storage for the MicroPython state pointer.
- * Each POSIX thread (worker task) gets its own copy, which is required
- * when OBCP_ENABLE_CONCURRENT_OBCPS is defined. */
-static __thread uintptr_t tls_values[obcp_thread_local_value_index_max];
-
-static uintptr_t tls_getter(uint32_t index)
-{
-   return tls_values[index];
-}
-
-static void tls_setter(uint32_t index, uintptr_t value)
-{
-   tls_values[index] = value;
-}
 
 static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
 {
@@ -280,12 +266,13 @@ static int32_t getObcpIndex(const asn1SccOBCP_Id id)
 
 void obcp_engine_startup(void)
 {
+   obcp_engine_tls_init();
    clear_engine();
 
    /* Initialize obcpengine with callbacks to TASTE RI functions */
    obcp_engine_context_t context = {
-       .obcp_engine_get_thread_local_value = tls_getter,
-       .obcp_engine_set_thread_local_value = tls_setter,
+       .obcp_engine_get_thread_local_value = obcp_engine_tls_get,
+       .obcp_engine_set_thread_local_value = obcp_engine_tls_set,
        .obcp_read_int_parameter = wrapper_read_int_parameter,
        .obcp_write_int_parameter = wrapper_write_int_parameter,
        .obcp_read_float_parameter = wrapper_read_float_parameter,
@@ -505,6 +492,10 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
 
    obcps[idx].status = OBCP_Execution_Status_active_and_running;
    const int32_t worker_id = get_worker_id_by_pid(pid);
+
+   /* Bind this thread's TLS slot on every do_work entry.  On Linux this is a
+    * no-op; on RTEMS/FreeRTOS it is idempotent after the first call. */
+   obcp_engine_tls_bind();
 
    if (worker_id < 0)
    {
