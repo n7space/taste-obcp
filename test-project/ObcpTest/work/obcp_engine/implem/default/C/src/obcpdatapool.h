@@ -5,7 +5,7 @@
 #include <stdbool.h>
 
 /**
- * @brief Read an integer or enumerated parameter from the on-board datapool.
+ * @brief Read an integer parameter from the on-board datapool.
  *
  * @param id Identifier of the parameter in the on-board datapool.
  * @param value Pointer to storage that will receive the integer value.
@@ -15,7 +15,7 @@
 typedef bool (*obcp_read_int_parameter_t)(const uint32_t id, int32_t *value);
 
 /**
- * @brief Write an integer or enumerated parameter to the on-board datapool.
+ * @brief Write an integer parameter to the on-board datapool.
  *
  * @param id Identifier of the parameter in the on-board datapool.
  * @param value Integer value to write.
@@ -23,6 +23,26 @@ typedef bool (*obcp_read_int_parameter_t)(const uint32_t id, int32_t *value);
  * @return true if the parameter was written successfully, false otherwise.
  */
 typedef bool (*obcp_write_int_parameter_t)(const uint32_t id, const int32_t value);
+
+/**
+ * @brief Read an enumerated parameter (mapped to an integer) from the on-board datapool.
+ *
+ * @param id Identifier of the parameter in the on-board datapool.
+ * @param value Pointer to storage that will receive the integer enumerated value.
+ *
+ * @return true if the parameter was read successfully, false otherwise.
+ */
+typedef bool (*obcp_read_enum_parameter_t)(const uint32_t id, int32_t *value);
+
+/**
+ * @brief Write an enumerated parameter (mapped to an integer) to the on-board datapool.
+ *
+ * @param id Identifier of the parameter in the on-board datapool.
+ * @param value Integer enumerated value to write.
+ *
+ * @return true if the parameter was written successfully, false otherwise.
+ */
+typedef bool (*obcp_write_enum_parameter_t)(const uint32_t id, const int32_t value);
 
 /**
  * @brief Read a float parameter from the on-board datapool.

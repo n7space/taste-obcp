@@ -31,6 +31,8 @@ typedef struct {
     /* datapool */
     obcp_read_int_parameter_t obcp_read_int_parameter;
     obcp_write_int_parameter_t obcp_write_int_parameter;
+    obcp_read_enum_parameter_t obcp_read_enum_parameter;
+    obcp_write_enum_parameter_t obcp_write_enum_parameter;
     obcp_read_float_parameter_t obcp_read_float_parameter;
     obcp_write_float_parameter_t obcp_write_float_parameter;
     obcp_read_bool_parameter_t obcp_read_bool_parameter;

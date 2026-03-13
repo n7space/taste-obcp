@@ -67,6 +67,40 @@ static mp_obj_t obcpdatapool_writeintparameter(mp_obj_t id_obj, mp_obj_t value_o
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(obcpdatapool_writeintparameter_obj, obcpdatapool_writeintparameter);
 
+// readenumparameter(id): read an enumerated parameter with the given ID
+static mp_obj_t obcpdatapool_readenumparameter(mp_obj_t id_obj)
+{
+    if (obcp_engine_context.obcp_read_enum_parameter == NULL)
+    {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("obcp_read_enum_parameter is not provided by the runtime"));
+    }
+    mp_uint_t id = mp_obj_get_uint(id_obj);
+    int32_t value;
+    if (!obcp_engine_context.obcp_read_enum_parameter(id, &value))
+    {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("datapool access failed"));
+    }
+    return mp_obj_new_int(value);
+}
+static MP_DEFINE_CONST_FUN_OBJ_1(obcpdatapool_readenumparameter_obj, obcpdatapool_readenumparameter);
+
+// writeenumparameter(id, value): write an enumeated parameter with the given ID
+static mp_obj_t obcpdatapool_writeenumparameter(mp_obj_t id_obj, mp_obj_t value_obj)
+{
+    if (obcp_engine_context.obcp_write_enum_parameter == NULL)
+    {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("obcp_write_enum_parameter is not provided by the runtime"));
+    }
+    mp_uint_t id = mp_obj_get_uint(id_obj);
+    mp_int_t value = mp_obj_get_int(value_obj);
+    if (!obcp_engine_context.obcp_write_enum_parameter(id, value))
+    {
+        mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("datapool access failed"));
+    }
+    return mp_const_none;
+}
+static MP_DEFINE_CONST_FUN_OBJ_2(obcpdatapool_writeenumparameter_obj, obcpdatapool_writeenumparameter);
+
 // readfloatparameter(id): read a float parameter with the given ID
 static mp_obj_t obcpdatapool_readfloatparameter(mp_obj_t id_obj)
 {
@@ -139,6 +173,8 @@ static const mp_rom_map_elem_t obcpdatapool_module_globals_table[] = {
     {MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_obcpdatapool)},
     {MP_ROM_QSTR(MP_QSTR_readintparameter), MP_ROM_PTR(&obcpdatapool_readintparameter_obj)},
     {MP_ROM_QSTR(MP_QSTR_writeintparameter), MP_ROM_PTR(&obcpdatapool_writeintparameter_obj)},
+    {MP_ROM_QSTR(MP_QSTR_readenumparameter), MP_ROM_PTR(&obcpdatapool_readenumparameter_obj)},
+    {MP_ROM_QSTR(MP_QSTR_writeenumparameter), MP_ROM_PTR(&obcpdatapool_writeenumparameter_obj)},
     {MP_ROM_QSTR(MP_QSTR_readfloatparameter), MP_ROM_PTR(&obcpdatapool_readfloatparameter_obj)},
     {MP_ROM_QSTR(MP_QSTR_writefloatparameter), MP_ROM_PTR(&obcpdatapool_writefloatparameter_obj)},
     {MP_ROM_QSTR(MP_QSTR_readboolparameter), MP_ROM_PTR(&obcpdatapool_readboolparameter_obj)},
