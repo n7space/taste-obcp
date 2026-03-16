@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <signal.h>
+#include <time.h>
 #include <unistd.h>
 
 
@@ -25,7 +26,10 @@ void harness_PI_get_current_time
        asn1SccT_Int32 *OUT_milliseconds)
 
 {
-   // TODO
+   struct timespec ts;
+   clock_gettime(CLOCK_MONOTONIC, &ts);
+   *OUT_seconds      = (asn1SccT_Int32)ts.tv_sec;
+   *OUT_milliseconds = (asn1SccT_Int32)(ts.tv_nsec / 1000000L);
 }
 
 
@@ -195,6 +199,32 @@ static const Harness_ObcpDef OBCP_TEST3 = {
    .src = "import obcptime\nobcptime.wait(3000)\n"
 };
 
+/* Gettime test OBCP: records the time before and after a known wait period,
+ * stores the elapsed milliseconds and a pass/fail flag in the datapool.
+ * Parameter IDs: 10 = elapsed milliseconds (int), 11 = passed (int: 1=pass)
+ * Tolerance window: ±200 ms around the nominal 2000 ms wait.
+ */
+#define TIMETEST_WAIT_MS       2000
+#define TIMETEST_TOLERANCE_MS   200
+#define TIMETEST_ELAPSED_PARAM_ID  10
+#define TIMETEST_PASSED_PARAM_ID   11
+
+static const Harness_ObcpDef OBCP_TIMETEST = {
+   .id  = {'T','I','M','E','T'},
+   .src =
+      "import obcptime\n"
+      "import obcpdatapool\n"
+      "import obcpio\n"
+      "t0 = obcptime.gettime()\n"
+      "obcptime.wait(2000)\n"
+      "t1 = obcptime.gettime()\n"
+      "elapsed = (t1[0] - t0[0]) * 1000 + (t1[1] - t0[1])\n"
+      "obcpdatapool.writeintparameter(10, elapsed)\n"
+      "passed = 1 if 1800 <= elapsed <= 2200 else 0\n"
+      "obcpdatapool.writeintparameter(11, passed)\n"
+      "obcpio.write('Gettime test: elapsed=' + str(elapsed) + 'ms, passed=' + str(passed) + '\\n')\n"
+};
+
 /* -----------------------------------------------------------------------
  * Helpers
  * ----------------------------------------------------------------------- */
@@ -245,6 +275,7 @@ typedef enum {
    PHASE_DATAPOOL_TEST,
    PHASE_CONCURRENCY_WAIT_TEST1,
    PHASE_CONCURRENCY_ALL_RUNNING,
+   PHASE_GETTIME_TEST,
 } Harness_Phase;
 
 void harness_PI_trigger(void)
@@ -338,7 +369,8 @@ void harness_PI_trigger(void)
       }
 
       /* -----------------------------------------------------------------
-       * Wait for both remaining OBCPs to finish and exit.
+       * Wait for both remaining OBCPs to finish, then kick off the
+       * gettime accuracy test.
        * ----------------------------------------------------------------- */
       case PHASE_CONCURRENCY_ALL_RUNNING: {
          const asn1SccOBCP_Execution_Status s2 = get_status(&OBCP_TEST2);
@@ -349,7 +381,49 @@ void harness_PI_trigger(void)
          if (s2 == OBCP_Execution_Status_inactive &&
              s3 == OBCP_Execution_Status_inactive)
          {
-            printf("All OBCPs finished — exiting\n");
+            printf("Concurrency tests finished\n");
+
+            if (!load_obcp(&OBCP_TIMETEST)) return;
+            if (!activate_obcp(&OBCP_TIMETEST)) return;
+
+            printf("Gettime test OBCP activated (waiting %d ms)\n",
+                   TIMETEST_WAIT_MS);
+            phase = PHASE_GETTIME_TEST;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for the gettime test OBCP to complete, then read the
+       * elapsed time and pass/fail flag from the datapool and report.
+       * ----------------------------------------------------------------- */
+      case PHASE_GETTIME_TEST: {
+         const asn1SccOBCP_Execution_Status st = get_status(&OBCP_TIMETEST);
+
+         if (st == OBCP_Execution_Status_inactive) {
+            /* Read results written by the OBCP into the datapool */
+            const asn1SccOBCP_Parameter_Id elapsed_id = TIMETEST_ELAPSED_PARAM_ID;
+            const asn1SccOBCP_Parameter_Id passed_id  = TIMETEST_PASSED_PARAM_ID;
+            const asn1SccOBCP_Parameter_Type int_type  = OBCP_Parameter_Type_integer_type;
+            asn1SccOBCP_Parameter_Value elapsed_val, passed_val;
+
+            harness_PI_get_parameter_value(&elapsed_id, &int_type, &elapsed_val);
+            harness_PI_get_parameter_value(&passed_id,  &int_type, &passed_val);
+
+            const int32_t elapsed_ms = elapsed_val.u.int_value;
+            const int32_t passed     = passed_val.u.int_value;
+
+            if (passed) {
+               printf("Gettime test PASSED: elapsed=%d ms "
+                      "(nominal=%d ms, tolerance=\u00b1%d ms)\n",
+                      elapsed_ms, TIMETEST_WAIT_MS, TIMETEST_TOLERANCE_MS);
+            } else {
+               printf("Gettime test FAILED: elapsed=%d ms "
+                      "(expected %d\u00b1%d ms)\n",
+                      elapsed_ms, TIMETEST_WAIT_MS, TIMETEST_TOLERANCE_MS);
+            }
+
+            printf("All tests finished — exiting\n");
             kill(getpid(), SIGTERM);
          }
          break;
