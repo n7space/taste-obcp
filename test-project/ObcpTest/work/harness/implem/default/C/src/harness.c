@@ -63,11 +63,40 @@ void harness_PI_get_parameter_value
 }
 
 
+/* -----------------------------------------------------------------------
+ * IO write test verification
+ * ----------------------------------------------------------------------- */
+
+static const char * const io_test_expected[] = {
+   "IO test: single-line write\n",
+   "IO test: numeric value: 42\n",
+   "IO test: string concatenation\n",
+};
+#define IO_TEST_EXPECTED_COUNT \
+   (sizeof(io_test_expected) / sizeof(io_test_expected[0]))
+
+static size_t io_test_msg_index  = 0;
+static bool   io_write_test_active = false;
+
+/* ----------------------------------------------------------------------- */
+
 void harness_PI_output_message
       (const asn1SccOBCP_Text *IN_text)
 
 {
-   printf(*IN_text);
+   printf("%s", *IN_text);
+
+   if (io_write_test_active) {
+      if (io_test_msg_index >= IO_TEST_EXPECTED_COUNT) {
+         printf("IO test ERROR: unexpected extra message: \"%s\"\n", *IN_text);
+      } else if (strcmp(*IN_text, io_test_expected[io_test_msg_index]) != 0) {
+         printf("IO test ERROR: message %zu: expected \"%s\", got \"%s\"\n",
+                io_test_msg_index,
+                io_test_expected[io_test_msg_index],
+                *IN_text);
+      }
+      io_test_msg_index++;
+   }
 }
 
 
@@ -113,6 +142,18 @@ typedef struct {
    const char      *src;
 } Harness_ObcpDef;
 
+/* IO write test OBCP: exercises the obcpio.write function by sending
+ * plain text, numeric conversions and string concatenation to the output.
+ */
+static const Harness_ObcpDef OBCP_IOTEST = {
+   .id  = {'I','O','T','S','T'},
+   .src =
+      "import obcpio\n"
+      "obcpio.write('IO test: single-line write\\n')\n"
+      "obcpio.write('IO test: numeric value: ' + str(42) + '\\n')\n"
+      "obcpio.write('IO test: ' + 'string ' + 'concatenation\\n')\n"
+};
+
 /* Datapool test OBCP: exercises write and read of int, enum, float and bool
  * parameters using the MicroPython obcpdatapool module.  Parameter IDs:
  *   1 = integer   2 = enum   3 = float   4 = bool
@@ -121,22 +162,22 @@ static const Harness_ObcpDef OBCP_DPTEST = {
    .id  = {'D','P','T','S','T'},
    .src =
       "import obcpdatapool\n"
+      "import obcpio\n"
       "obcpdatapool.writeintparameter(1, -42)\n"
       "v = obcpdatapool.readintparameter(1)\n"
       "if v != -42: raise RuntimeError('int fail')\n"
-      "print('DP int OK: ' + str(v))\n"
+      "obcpio.write('DP int OK: ' + str(v) + '\\n')\n"
       "obcpdatapool.writeenumparameter(2, 7)\n"
       "v = obcpdatapool.readenumparameter(2)\n"
       "if v != 7: raise RuntimeError('enum fail')\n"
-      "print('DP enum OK: ' + str(v))\n"
+      "obcpio.write('DP enum OK: ' + str(v) + '\\n')\n"
       "obcpdatapool.writefloatparameter(3, 2.718)\n"
       "v = obcpdatapool.readfloatparameter(3)\n"
-      "print('DP float OK: ' + str(v))\n"
+      "obcpio.write('DP float OK: ' + str(v) + '\\n')\n"
       "obcpdatapool.writeboolparameter(4, True)\n"
       "v = obcpdatapool.readboolparameter(4)\n"
       "if not v: raise RuntimeError('bool fail')\n"
-      "print('DP bool OK: ' + str(v))\n"
-      "print('All datapool tests passed')\n"
+      "obcpio.write('DP bool OK: ' + str(v) + '\\n')\n"
 };
 
 static const Harness_ObcpDef OBCP_TEST1 = {
@@ -200,6 +241,7 @@ static asn1SccOBCP_Execution_Status get_status(const Harness_ObcpDef *def)
 
 typedef enum {
    PHASE_INIT,
+   PHASE_IO_WRITE_TEST,
    PHASE_DATAPOOL_TEST,
    PHASE_CONCURRENCY_WAIT_TEST1,
    PHASE_CONCURRENCY_ALL_RUNNING,
@@ -212,16 +254,44 @@ void harness_PI_trigger(void)
    switch (phase) {
 
       /* -----------------------------------------------------------------
-       * Start the engine and kick off the datapool test OBCP.
+       * Start the engine and kick off the IO write test OBCP.
        * ----------------------------------------------------------------- */
       case PHASE_INIT: {
          harness_RI_start_obcp_engine();
 
-         if (!load_obcp(&OBCP_DPTEST)) return;
-         if (!activate_obcp(&OBCP_DPTEST)) return;
+         if (!load_obcp(&OBCP_IOTEST)) return;
+         if (!activate_obcp(&OBCP_IOTEST)) return;
 
-         printf("Datapool test OBCP activated\n");
-         phase = PHASE_DATAPOOL_TEST;
+         printf("IO write test OBCP activated\n");
+         io_write_test_active = true;
+         io_test_msg_index = 0;
+         phase = PHASE_IO_WRITE_TEST;
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for the IO write test OBCP to complete, then kick off the
+       * datapool test OBCP.
+       * ----------------------------------------------------------------- */
+      case PHASE_IO_WRITE_TEST: {
+         const asn1SccOBCP_Execution_Status sio = get_status(&OBCP_IOTEST);
+
+         if (sio == OBCP_Execution_Status_inactive) {
+            io_write_test_active = false;
+            if (io_test_msg_index != IO_TEST_EXPECTED_COUNT) {
+               printf("IO test ERROR: expected %zu messages, received %zu\n",
+                      IO_TEST_EXPECTED_COUNT, io_test_msg_index);
+            } else {
+               printf("IO write tests finished — all %zu messages verified OK\n",
+                      IO_TEST_EXPECTED_COUNT);
+            }
+
+            if (!load_obcp(&OBCP_DPTEST)) return;
+            if (!activate_obcp(&OBCP_DPTEST)) return;
+
+            printf("Datapool test OBCP activated\n");
+            phase = PHASE_DATAPOOL_TEST;
+         }
          break;
       }
 
