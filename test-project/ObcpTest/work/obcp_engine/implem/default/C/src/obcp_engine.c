@@ -45,6 +45,12 @@ extern bool     Hal_SemaphoreRelease(int32_t id);
 #define OBCP_MICROPYTHON_HEAP_SIZE (65536)
 #endif
 
+/* Packet receive buffer per worker — must be large enough to hold the
+ * largest possible OBCP_Packet payload (127 bytes per the ASN.1 model). */
+#ifndef OBCP_PACKET_BUFFER_SIZE
+#define OBCP_PACKET_BUFFER_SIZE (127)
+#endif
+
 #ifndef OBCP_PACKET_CHANNEL_COUNT
 #define OBCP_PACKET_CHANNEL_COUNT (4)
 #endif
@@ -80,6 +86,7 @@ typedef struct
       char     bytes[OBCP_MICROPYTHON_HEAP_SIZE];
       uintptr_t _align;
    } heap;
+   uint8_t packet_buffer[OBCP_PACKET_BUFFER_SIZE];
 } OBCP_Worker;
 
 static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS] = {};
@@ -734,6 +741,9 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
    }
 
    DEBUG_PRINT("DO WORK Worker[%d] PID %d\n", worker_id, pid);
+
+   obcpengine_provide_buffer(workers[worker_id].packet_buffer,
+                             OBCP_PACKET_BUFFER_SIZE);
 
    obcpengine_execute_py(
        (const char *)obcps[idx].code.arr,
