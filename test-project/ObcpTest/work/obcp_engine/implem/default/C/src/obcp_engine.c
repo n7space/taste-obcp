@@ -173,7 +173,37 @@ static bool wrapper_write_int_parameter(const uint32_t id, const int32_t value)
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Value param_value;
    param_value.kind = OBCP_Parameter_Value_int_value_PRESENT;
-   param_value.u.int_value = (asn1SccT_UInt32)value;
+   param_value.u.int_value = (asn1SccT_Int32)value;
+
+   obcp_engine_RI_set_parameter_value(&param_id, &param_value);
+   return true;
+}
+
+
+/* Wrapper for read_enum_parameter */
+static bool wrapper_read_enum_parameter(const uint32_t id, int32_t *value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_enumerated_type;
+   asn1SccOBCP_Parameter_Value param_value;
+
+   obcp_engine_RI_get_parameter_value(&param_id, &param_type, &param_value);
+
+   if (param_value.kind == OBCP_Parameter_Value_int_value_PRESENT)
+   {
+      *value = (int32_t)param_value.u.int_value;
+      return true;
+   }
+   return false;
+}
+
+/* Wrapper for write_enum_parameter */
+static bool wrapper_write_enum_parameter(const uint32_t id, const int32_t value)
+{
+   asn1SccOBCP_Parameter_Id param_id = id;
+   asn1SccOBCP_Parameter_Value param_value;
+   param_value.kind = OBCP_Parameter_Value_enum_value_PRESENT;
+   param_value.u.enum_value = (asn1SccT_Int32)value;
 
    obcp_engine_RI_set_parameter_value(&param_id, &param_value);
    return true;
@@ -275,6 +305,8 @@ void obcp_engine_startup(void)
        .obcp_engine_set_thread_local_value = obcp_engine_tls_set,
        .obcp_read_int_parameter = wrapper_read_int_parameter,
        .obcp_write_int_parameter = wrapper_write_int_parameter,
+       .obcp_read_enum_parameter = wrapper_read_enum_parameter,
+       .obcp_write_enum_parameter = wrapper_write_enum_parameter,
        .obcp_read_float_parameter = wrapper_read_float_parameter,
        .obcp_write_float_parameter = wrapper_write_float_parameter,
        .obcp_read_bool_parameter = wrapper_read_bool_parameter,

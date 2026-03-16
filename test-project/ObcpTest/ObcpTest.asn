@@ -3,6 +3,7 @@ BEGIN
 
 IMPORTS
     T-UInt32,
+    T-Int32,
     T-Boolean
 FROM TASTE-BasicTypes;
 
@@ -41,8 +42,8 @@ OBCP-Parameter-Type ::= ENUMERATED {
 }
 
 OBCP-Parameter-Value ::= CHOICE {
-    int-value T-UInt32,
-    enum-value T-UInt32,
+    int-value T-Int32,
+    enum-value T-Int32,
     float-value T-Float32,
     bool-value T-Boolean
 }
