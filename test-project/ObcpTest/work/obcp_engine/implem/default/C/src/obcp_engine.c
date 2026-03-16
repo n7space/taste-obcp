@@ -11,10 +11,12 @@
 #include "obcp_engine_thread_local.h"
 #include <string.h>
 
-/* Forward declarations for HAL functions (Hal.h uses extern "C" without a
- * __cplusplus guard and cannot be included directly from C). */
+/* Forward declarations for HAL functions (provided by the TASTE runtime). */
 extern bool     Hal_SleepNs(uint64_t time_ns);
 extern uint64_t Hal_GetElapsedTimeInNs(void);
+extern int32_t  Hal_SemaphoreCreate(void);
+extern bool     Hal_SemaphoreObtain(int32_t id);
+extern bool     Hal_SemaphoreRelease(int32_t id);
 
 #define MS_PER_SECOND     (1000U)
 #define NS_PER_MS         (1000000ULL)
@@ -42,6 +44,17 @@ extern uint64_t Hal_GetElapsedTimeInNs(void);
 #ifndef OBCP_MICROPYTHON_HEAP_SIZE
 #define OBCP_MICROPYTHON_HEAP_SIZE (65536)
 #endif
+
+#ifndef OBCP_PACKET_CHANNEL_COUNT
+#define OBCP_PACKET_CHANNEL_COUNT (4)
+#endif
+
+/* Polling interval used when a finite receive timeout is requested (10 ms). */
+#define PACKET_POLL_INTERVAL_NS  (10000000ULL)
+
+/* Sentinel: pass as timeout_ms to obcp_receive_packet for an indefinite
+ * blocking wait (unblocked by an incoming packet via the channel semaphore). */
+#define OBCP_RECEIVE_TIMEOUT_BLOCKING  (~(uint32_t)0U)
 
 typedef struct
 {
@@ -71,6 +84,25 @@ typedef struct
 
 static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS] = {};
 static uint32_t workers_count = 0;
+
+/* ===================================================================
+ * Per-channel packet inlet buffer
+ * ===================================================================
+ * Each channel holds at most one packet at a time.  A Hal semaphore
+ * (initially 0) allows a receiver to block until a packet arrives.
+ * obcp_engine_PI_receive_packet stores the incoming packet and calls
+ * Hal_SemaphoreRelease; wrapper_receive_packet consumes it.
+ * =================================================================== */
+
+typedef struct
+{
+   asn1SccOBCP_Packet packet;
+   bool               occupied;
+   int32_t            data_semaphore_id;  /* released on arrival, obtained by receiver */
+   int32_t            space_semaphore_id; /* obtained before writing, released after consuming */
+} OBCP_PacketChannel;
+
+static OBCP_PacketChannel packet_channels[OBCP_PACKET_CHANNEL_COUNT];
 
 static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
 {
@@ -267,6 +299,144 @@ static bool wrapper_write_bool_parameter(const uint32_t id, const bool value)
    return true;
 }
 
+/* ===================================================================
+ * Packet wrapper functions
+ * =================================================================== */
+
+/* Returns true when a packet is buffered on the given channel. */
+static bool wrapper_is_packet_available(const uint32_t channel)
+{
+   if (channel >= OBCP_PACKET_CHANNEL_COUNT)
+   {
+      return false;
+   }
+   return packet_channels[channel].occupied;
+}
+
+/* Returns the index of the first channel that currently has a packet,
+ * or false when none do. */
+static bool wrapper_get_channel_with_packet_available(uint32_t *channel)
+{
+   for (uint32_t i = 0; i < OBCP_PACKET_CHANNEL_COUNT; ++i)
+   {
+      if (packet_channels[i].occupied)
+      {
+         *channel = i;
+         return true;
+      }
+   }
+   return false;
+}
+
+/* Output path: packets are always forwarded directly to the TASTE RI,
+ * so a valid channel can always accept a send request. */
+static bool wrapper_can_send_packet(const uint32_t channel)
+{
+   return channel < OBCP_PACKET_CHANNEL_COUNT;
+}
+
+/* Forward the packet to the TASTE harness via the send_packet RI. */
+static bool wrapper_send_packet(const uint32_t channel,
+                                const uint32_t length,
+                                const char *const data)
+{
+   asn1SccOBCP_Channel_Id ch_id  = (asn1SccOBCP_Channel_Id)channel;
+   asn1SccOBCP_Packet     packet;
+   asn1SccT_Boolean       success = FALSE;
+
+   uint32_t copy_len = length;
+   if (copy_len > (uint32_t)sizeof(packet.arr))
+   {
+      copy_len = (uint32_t)sizeof(packet.arr);
+   }
+   memcpy(packet.arr, data, copy_len);
+   packet.nCount = (int)copy_len;
+
+   obcp_engine_RI_send_packet(&ch_id, &packet, &success);
+   return (bool)success;
+}
+
+/* Receive a packet from the inlet buffer.
+ *
+ * timeout_milliseconds == 0                    : non-blocking check.
+ * timeout_milliseconds == OBCP_RECEIVE_TIMEOUT_BLOCKING : block indefinitely
+ *                          using the channel semaphore; unblocked via
+ *                          Hal_SemaphoreRelease in obcp_engine_PI_receive_packet.
+ * 0 < timeout_milliseconds < OBCP_RECEIVE_TIMEOUT_BLOCKING : poll with
+ *                          Hal_SleepNs until a packet arrives or the
+ *                          deadline is exceeded.
+ */
+static bool wrapper_receive_packet(const uint32_t channel,
+                                   uint32_t *length,
+                                   char *data,
+                                   uint32_t timeout_milliseconds)
+{
+   if (channel >= OBCP_PACKET_CHANNEL_COUNT)
+   {
+      return false;
+   }
+
+   OBCP_PacketChannel *ch = &packet_channels[channel];
+
+   if (timeout_milliseconds == 0U)
+   {
+      /* Non-blocking: return immediately if no packet is present. */
+      if (!ch->occupied)
+      {
+         return false;
+      }
+   }
+   else if (timeout_milliseconds == OBCP_RECEIVE_TIMEOUT_BLOCKING)
+   {
+      /* Blocking wait: Hal_SemaphoreObtain blocks until
+       * obcp_engine_PI_receive_packet calls Hal_SemaphoreRelease.
+       * If a packet was already present before we get here the previous
+       * release will have incremented the semaphore count, so Obtain
+       * returns immediately — no packet is missed. */
+      if (!ch->occupied)
+      {
+         Hal_SemaphoreObtain(ch->data_semaphore_id);
+      }
+   }
+   else
+   {
+      /* Timed wait: poll at PACKET_POLL_INTERVAL_NS intervals. */
+      const uint64_t deadline_ns =
+          Hal_GetElapsedTimeInNs() +
+          (uint64_t)timeout_milliseconds * NS_PER_MS;
+
+      while (!ch->occupied)
+      {
+         if (Hal_GetElapsedTimeInNs() >= deadline_ns)
+         {
+            return false;
+         }
+         Hal_SleepNs(PACKET_POLL_INTERVAL_NS);
+      }
+   }
+
+   if (!ch->occupied)
+   {
+      /* Spurious wakeup — no packet available. */
+      return false;
+   }
+
+   /* Consume the buffered packet. */
+   uint32_t copy_len = (uint32_t)ch->packet.nCount;
+   if (copy_len > *length)
+   {
+      copy_len = *length;
+   }
+   memcpy(data, ch->packet.arr, copy_len);
+   *length = copy_len;
+   ch->occupied = false;
+
+   /* Signal that the slot is free for the next incoming packet. */
+   Hal_SemaphoreRelease(ch->space_semaphore_id);
+
+   return true;
+}
+
 /* Compare two OBCP ids without relying on null termination. */
 static bool isObcpIdEqual(const asn1SccOBCP_Id id1, const asn1SccOBCP_Id id2)
 {
@@ -299,6 +469,17 @@ void obcp_engine_startup(void)
    obcp_engine_tls_init();
    clear_engine();
 
+   /* Initialise per-channel packet inlet buffers and their semaphores. */
+   for (uint32_t i = 0; i < OBCP_PACKET_CHANNEL_COUNT; ++i)
+   {
+      packet_channels[i].occupied        = false;
+      /* data semaphore starts at 0: obtained by receiver, released on arrival */
+      packet_channels[i].data_semaphore_id  = Hal_SemaphoreCreate();
+      /* space semaphore starts at 1: obtained before writing, released after read */
+      packet_channels[i].space_semaphore_id = Hal_SemaphoreCreate();
+      Hal_SemaphoreRelease(packet_channels[i].space_semaphore_id);
+   }
+
    /* Initialize obcpengine with callbacks to TASTE RI functions */
    obcp_engine_context_t context = {
        .obcp_engine_get_thread_local_value = obcp_engine_tls_get,
@@ -318,11 +499,11 @@ void obcp_engine_startup(void)
        .obcp_wait = wrapper_wait,
        .obcp_waituntil = wrapper_waituntil,
        .obcp_gettime = wrapper_get_current_time,
-       .obcp_is_packet_available = NULL,               /* Not implemented yet */
-       .obcp_get_channel_with_packet_available = NULL, /* Not implemented yet */
-       .obcp_can_send_packet = NULL,                   /* Not implemented yet */
-       .obcp_send_packet = NULL,                       /* Not implemented yet */
-       .obcp_receive_packet = NULL                     /* Not implemented yet */
+       .obcp_is_packet_available = wrapper_is_packet_available,
+       .obcp_get_channel_with_packet_available = wrapper_get_channel_with_packet_available,
+       .obcp_can_send_packet = wrapper_can_send_packet,
+       .obcp_send_packet = wrapper_send_packet,
+       .obcp_receive_packet = wrapper_receive_packet
    };
 
    obcpengine_init(&context);
@@ -464,9 +645,25 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
 
 void obcp_engine_PI_receive_packet(const asn1SccOBCP_Channel_Id *IN_channel,
                                    const asn1SccOBCP_Packet *IN_packet)
-
 {
-   // TODO
+   const uint32_t ch_idx = (uint32_t)*IN_channel;
+   if (ch_idx >= OBCP_PACKET_CHANNEL_COUNT)
+   {
+      return;
+   }
+
+   OBCP_PacketChannel *ch = &packet_channels[ch_idx];
+
+   /* Block until the slot is free (space semaphore count > 0). */
+   Hal_SemaphoreObtain(ch->space_semaphore_id);
+
+   /* Store the incoming packet, overwriting any previously unread packet
+    * on the same channel (1-packet-deep inlet buffer per channel). */
+   ch->packet   = *IN_packet;
+   ch->occupied = true;
+
+   /* Unblock any receiver that is waiting on this channel's data semaphore. */
+   Hal_SemaphoreRelease(ch->data_semaphore_id);
 }
 
 void obcp_engine_PI_start_obcp_engine(void)
