@@ -189,9 +189,9 @@ static bool wrapper_read_enum_parameter(const uint32_t id, int32_t *value)
 
    obcp_engine_RI_get_parameter_value(&param_id, &param_type, &param_value);
 
-   if (param_value.kind == OBCP_Parameter_Value_int_value_PRESENT)
+   if (param_value.kind == OBCP_Parameter_Value_enum_value_PRESENT)
    {
-      *value = (int32_t)param_value.u.int_value;
+      *value = (int32_t)param_value.u.enum_value;
       return true;
    }
    return false;

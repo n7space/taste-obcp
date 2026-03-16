@@ -29,13 +29,37 @@ void harness_PI_get_current_time
 }
 
 
+/* -----------------------------------------------------------------------
+ * In-memory parameter store (supports up to PARAM_STORE_SIZE parameters)
+ * ----------------------------------------------------------------------- */
+
+#define PARAM_STORE_SIZE 16
+
+typedef struct {
+   asn1SccOBCP_Parameter_Id    id;
+   asn1SccOBCP_Parameter_Value value;
+   bool                        valid;
+} Harness_ParamEntry;
+
+static Harness_ParamEntry param_store[PARAM_STORE_SIZE];
+
+/* ----------------------------------------------------------------------- */
+
 void harness_PI_get_parameter_value
       (const asn1SccOBCP_Parameter_Id *IN_id,
        const asn1SccOBCP_Parameter_Type *IN_parameter_type,
        asn1SccOBCP_Parameter_Value *OUT_parameter_value)
 
 {
-   // TODO
+   for (int i = 0; i < PARAM_STORE_SIZE; i++) {
+      if (param_store[i].valid && param_store[i].id == *IN_id) {
+         *OUT_parameter_value = param_store[i].value;
+         return;
+      }
+   }
+   /* Parameter not found: return a default zero integer value */
+   OUT_parameter_value->kind        = OBCP_Parameter_Value_int_value_PRESENT;
+   OUT_parameter_value->u.int_value = 0;
 }
 
 
@@ -62,7 +86,21 @@ void harness_PI_set_parameter_value
        const asn1SccOBCP_Parameter_Value *IN_parameter_value)
 
 {
-   // TODO
+   int empty = -1;
+   for (int i = 0; i < PARAM_STORE_SIZE; i++) {
+      if (param_store[i].valid && param_store[i].id == *IN_id) {
+         param_store[i].value = *IN_parameter_value;
+         return;
+      }
+      if (!param_store[i].valid && empty < 0) {
+         empty = i;
+      }
+   }
+   if (empty >= 0) {
+      param_store[empty].id    = *IN_id;
+      param_store[empty].value = *IN_parameter_value;
+      param_store[empty].valid = true;
+   }
 }
 
 
@@ -74,6 +112,32 @@ typedef struct {
    asn1SccOBCP_Id   id;
    const char      *src;
 } Harness_ObcpDef;
+
+/* Datapool test OBCP: exercises write and read of int, enum, float and bool
+ * parameters using the MicroPython obcpdatapool module.  Parameter IDs:
+ *   1 = integer   2 = enum   3 = float   4 = bool
+ */
+static const Harness_ObcpDef OBCP_DPTEST = {
+   .id  = {'D','P','T','S','T'},
+   .src =
+      "import obcpdatapool\n"
+      "obcpdatapool.writeintparameter(1, -42)\n"
+      "v = obcpdatapool.readintparameter(1)\n"
+      "if v != -42: raise RuntimeError('int fail')\n"
+      "print('DP int OK: ' + str(v))\n"
+      "obcpdatapool.writeenumparameter(2, 7)\n"
+      "v = obcpdatapool.readenumparameter(2)\n"
+      "if v != 7: raise RuntimeError('enum fail')\n"
+      "print('DP enum OK: ' + str(v))\n"
+      "obcpdatapool.writefloatparameter(3, 2.718)\n"
+      "v = obcpdatapool.readfloatparameter(3)\n"
+      "print('DP float OK: ' + str(v))\n"
+      "obcpdatapool.writeboolparameter(4, True)\n"
+      "v = obcpdatapool.readboolparameter(4)\n"
+      "if not v: raise RuntimeError('bool fail')\n"
+      "print('DP bool OK: ' + str(v))\n"
+      "print('All datapool tests passed')\n"
+};
 
 static const Harness_ObcpDef OBCP_TEST1 = {
    .id  = {'T','E','S','T','1'},
@@ -136,52 +200,82 @@ static asn1SccOBCP_Execution_Status get_status(const Harness_ObcpDef *def)
 
 typedef enum {
    PHASE_INIT,
-   PHASE_WAIT_FOR_TEST1,
-   PHASE_ALL_RUNNING,
+   PHASE_DATAPOOL_TEST,
+   PHASE_CONCURRENCY_WAIT_TEST1,
+   PHASE_CONCURRENCY_ALL_RUNNING,
 } Harness_Phase;
 
 void harness_PI_trigger(void)
 {
    static Harness_Phase phase = PHASE_INIT;
 
-   printf("Status — TEST1: %d  TEST2: %d  TEST3: %d\n",
-          get_status(&OBCP_TEST1),
-          get_status(&OBCP_TEST2),
-          get_status(&OBCP_TEST3));
-
    switch (phase) {
 
+      /* -----------------------------------------------------------------
+       * Start the engine and kick off the datapool test OBCP.
+       * ----------------------------------------------------------------- */
       case PHASE_INIT: {
          harness_RI_start_obcp_engine();
 
-         /* Load all three OBCPs up front */
-         if (!load_obcp(&OBCP_TEST1)) return;
-         if (!load_obcp(&OBCP_TEST2)) return;
-         if (!load_obcp(&OBCP_TEST3)) return;
+         if (!load_obcp(&OBCP_DPTEST)) return;
+         if (!activate_obcp(&OBCP_DPTEST)) return;
 
-         /* TEST1 and TEST2 start immediately; TEST3 waits for TEST1 */
-         if (!activate_obcp(&OBCP_TEST1)) return;
-         if (!activate_obcp(&OBCP_TEST2)) return;
-
-         printf("TEST1 (3 s) and TEST2 (5 s) activated\n");
-         phase = PHASE_WAIT_FOR_TEST1;
+         printf("Datapool test OBCP activated\n");
+         phase = PHASE_DATAPOOL_TEST;
          break;
       }
 
-      case PHASE_WAIT_FOR_TEST1: {
-         const asn1SccOBCP_Execution_Status s1 = get_status(&OBCP_TEST1);
+      /* -----------------------------------------------------------------
+       * Wait for the datapool test OBCP to complete, then launch the
+       * concurrency tests (TEST1 and TEST2 run in parallel).
+       * ----------------------------------------------------------------- */
+      case PHASE_DATAPOOL_TEST: {
+         const asn1SccOBCP_Execution_Status sdp = get_status(&OBCP_DPTEST);
 
-         if (s1 == OBCP_Execution_Status_inactive) {
-            printf("TEST1 finished — activating TEST3 (3 s)\n");
-            if (!activate_obcp(&OBCP_TEST3)) return;
-            phase = PHASE_ALL_RUNNING;
+         if (sdp == OBCP_Execution_Status_inactive) {
+            printf("Datapool tests finished\n");
+
+            if (!load_obcp(&OBCP_TEST1)) return;
+            if (!load_obcp(&OBCP_TEST2)) return;
+            if (!load_obcp(&OBCP_TEST3)) return;
+
+            /* TEST1 and TEST2 start immediately; TEST3 waits for TEST1 */
+            if (!activate_obcp(&OBCP_TEST1)) return;
+            if (!activate_obcp(&OBCP_TEST2)) return;
+
+            printf("TEST1 (3 s) and TEST2 (5 s) activated\n");
+            phase = PHASE_CONCURRENCY_WAIT_TEST1;
          }
          break;
       }
 
-      case PHASE_ALL_RUNNING: {
+      /* -----------------------------------------------------------------
+       * Wait for TEST1 to complete, then activate TEST3 to exercise
+       * concurrent execution of two active OBCPs.
+       * ----------------------------------------------------------------- */
+      case PHASE_CONCURRENCY_WAIT_TEST1: {
+         const asn1SccOBCP_Execution_Status s1 = get_status(&OBCP_TEST1);
+
+         printf("Status — TEST1: %d  TEST2: %d\n",
+                s1, get_status(&OBCP_TEST2));
+
+         if (s1 == OBCP_Execution_Status_inactive) {
+            printf("TEST1 finished — activating TEST3 (3 s)\n");
+            if (!activate_obcp(&OBCP_TEST3)) return;
+            phase = PHASE_CONCURRENCY_ALL_RUNNING;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for both remaining OBCPs to finish and exit.
+       * ----------------------------------------------------------------- */
+      case PHASE_CONCURRENCY_ALL_RUNNING: {
          const asn1SccOBCP_Execution_Status s2 = get_status(&OBCP_TEST2);
          const asn1SccOBCP_Execution_Status s3 = get_status(&OBCP_TEST3);
+
+         printf("Status — TEST2: %d  TEST3: %d\n", s2, s3);
+
          if (s2 == OBCP_Execution_Status_inactive &&
              s3 == OBCP_Execution_Status_inactive)
          {
