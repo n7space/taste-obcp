@@ -104,6 +104,41 @@ void harness_PI_output_message
 }
 
 
+/* -----------------------------------------------------------------------
+ * Events test verification
+ * ----------------------------------------------------------------------- */
+
+static const asn1SccOBCP_Event_Id events_test_expected[] = { 101, 202, 303 };
+#define EVENTS_TEST_EXPECTED_COUNT \
+   (sizeof(events_test_expected) / sizeof(events_test_expected[0]))
+
+static size_t events_test_received_count = 0;
+static bool   events_test_all_ok         = true;
+static bool   events_test_active         = false;
+
+/* ----------------------------------------------------------------------- */
+
+void harness_PI_send_event( const asn1SccOBCP_Event_Id * event_id)
+{
+   printf("Event received: ID=%u\n", (unsigned)*event_id);
+
+   if (events_test_active) {
+      if (events_test_received_count >= EVENTS_TEST_EXPECTED_COUNT) {
+         printf("Events test ERROR: unexpected extra event: ID=%u\n",
+                (unsigned)*event_id);
+         events_test_all_ok = false;
+      } else if (*event_id != events_test_expected[events_test_received_count]) {
+         printf("Events test ERROR: event %zu: expected ID=%u, got ID=%u\n",
+                events_test_received_count,
+                (unsigned)events_test_expected[events_test_received_count],
+                (unsigned)*event_id);
+         events_test_all_ok = false;
+      }
+      events_test_received_count++;
+   }
+}
+
+
 void harness_PI_send_packet
       (const asn1SccOBCP_Channel_Id *IN_channel,
        const asn1SccOBCP_Packet *IN_packet,
@@ -182,6 +217,19 @@ static const Harness_ObcpDef OBCP_DPTEST = {
       "v = obcpdatapool.readboolparameter(4)\n"
       "if not v: raise RuntimeError('bool fail')\n"
       "obcpio.write('DP bool OK: ' + str(v) + '\\n')\n"
+};
+
+/* Events test OBCP: sends a known sequence of events via obcpevents.sendevent.
+ * The harness verifies that all three events arrive in the expected order.
+ * Event IDs: 101, 202, 303
+ */
+static const Harness_ObcpDef OBCP_EVTEST = {
+   .id  = {'E','V','T','S','T'},
+   .src =
+      "import obcpevents\n"
+      "obcpevents.sendevent(101)\n"
+      "obcpevents.sendevent(202)\n"
+      "obcpevents.sendevent(303)\n"
 };
 
 static const Harness_ObcpDef OBCP_TEST1 = {
@@ -273,6 +321,7 @@ typedef enum {
    PHASE_INIT,
    PHASE_IO_WRITE_TEST,
    PHASE_DATAPOOL_TEST,
+   PHASE_EVENTS_TEST,
    PHASE_CONCURRENCY_WAIT_TEST1,
    PHASE_CONCURRENCY_ALL_RUNNING,
    PHASE_GETTIME_TEST,
@@ -335,6 +384,40 @@ void harness_PI_trigger(void)
 
          if (sdp == OBCP_Execution_Status_inactive) {
             printf("Datapool tests finished\n");
+
+            if (!load_obcp(&OBCP_EVTEST)) return;
+            if (!activate_obcp(&OBCP_EVTEST)) return;
+
+            printf("Events test OBCP activated\n");
+            events_test_active         = true;
+            events_test_received_count = 0;
+            events_test_all_ok         = true;
+            phase = PHASE_EVENTS_TEST;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for the events test OBCP to complete, then verify that all
+       * expected events were received, and launch the concurrency tests.
+       * ----------------------------------------------------------------- */
+      case PHASE_EVENTS_TEST: {
+         const asn1SccOBCP_Execution_Status sev = get_status(&OBCP_EVTEST);
+
+         if (sev == OBCP_Execution_Status_inactive) {
+            events_test_active = false;
+
+            if (!events_test_all_ok ||
+                events_test_received_count != EVENTS_TEST_EXPECTED_COUNT)
+            {
+               printf("Events test FAILED: expected %zu events, received %zu%s\n",
+                      EVENTS_TEST_EXPECTED_COUNT,
+                      events_test_received_count,
+                      events_test_all_ok ? "" : " (order/ID mismatch)");
+            } else {
+               printf("Events test PASSED: all %zu events received in correct order\n",
+                      EVENTS_TEST_EXPECTED_COUNT);
+            }
 
             if (!load_obcp(&OBCP_TEST1)) return;
             if (!load_obcp(&OBCP_TEST2)) return;
