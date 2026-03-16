@@ -139,13 +139,61 @@ void harness_PI_send_event( const asn1SccOBCP_Event_Id * event_id)
 }
 
 
+/* -----------------------------------------------------------------------
+ * Packets test channel and parameter IDs
+ * ----------------------------------------------------------------------- */
+
+/* Channel assignment for the packets test */
+#define PKTTEST_ENV_INPUT_CHANNEL    0u  /* env injects onto this channel for OBCP_PKTRECV */
+#define PKTTEST_INTER_OBCP_CHANNEL   1u  /* OBCP_PKTRECV sends here; harness relays back in */
+#define PKTTEST_ENV_OUTPUT_CHANNEL   2u  /* OBCP_PKTSEND sends here; harness captures it */
+
+/* Datapool parameter IDs written by the OBCPs */
+#define PKTTEST_ENV_RECEIVE_PARAM_ID   20u /* 1 = env-input received correctly */
+#define PKTTEST_INTER_OBCP_PARAM_ID    21u /* 1 = inter-OBCP exchange succeeded */
+#define PKTTEST_NONBLOCKING_PARAM_ID   22u /* 1 = non-blocking / availability checks passed */
+#define PKTTEST_CANSEND_PARAM_ID       23u /* 1 = cansendpacket checks passed */
+
+/* Expected content of the 16-byte packet sent from OBCP_PKTSEND to env */
+static const unsigned char pkttest_expected_env_output[16] = {
+   0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+   0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF
+};
+
+static bool              pkttest_active              = false;
+static bool              pkttest_env_output_received = false;
+static asn1SccOBCP_Packet pkttest_env_output_packet;
+
+/* ----------------------------------------------------------------------- */
+
 void harness_PI_send_packet
       (const asn1SccOBCP_Channel_Id *IN_channel,
        const asn1SccOBCP_Packet *IN_packet,
        asn1SccT_Boolean *OUT_success)
 
 {
-   // TODO
+   *OUT_success = TRUE;
+
+   if (*IN_channel == PKTTEST_INTER_OBCP_CHANNEL) {
+      /* Relay the inter-OBCP packet back into the engine on the same channel
+       * so that the receiving OBCP can pick it up via receivepacket(). */
+      printf("Packets test: relaying %d-byte packet on channel %u\n",
+             IN_packet->nCount, (unsigned)*IN_channel);
+      harness_RI_receive_packet(IN_channel, IN_packet);
+      return;
+   }
+
+   if (*IN_channel == PKTTEST_ENV_OUTPUT_CHANNEL && pkttest_active) {
+      /* Capture the packet sent from the OBCP to the environment. */
+      printf("Packets test: received %d-byte packet from OBCP on channel %u\n",
+             IN_packet->nCount, (unsigned)*IN_channel);
+      pkttest_env_output_received = true;
+      pkttest_env_output_packet   = *IN_packet;
+      return;
+   }
+
+   printf("Packet received on channel %u (%d bytes)\n",
+          (unsigned)*IN_channel, IN_packet->nCount);
 }
 
 
@@ -273,6 +321,56 @@ static const Harness_ObcpDef OBCP_TIMETEST = {
       "obcpio.write('Gettime test: elapsed=' + str(elapsed) + 'ms, passed=' + str(passed) + '\\n')\n"
 };
 
+/* Packet receive test OBCP: runs concurrently with OBCP_PKTSEND.
+ * Tests:
+ *  - ispacketavailable / getchannelwithpacketavailable / non-blocking receivepacket
+ *  - Timed receive (500 ms) of a 4-byte env-injected packet on channel 0
+ *  - Sending an 8-byte reply to OBCP_PKTSEND on channel 1
+ * Results are stored in the datapool (params 20 and 22).
+ */
+static const Harness_ObcpDef OBCP_PKTRECV = {
+   .id  = {'P','K','T','R','V'},
+   .src =
+      "import obcppackets\n"
+      "import obcpdatapool\n"
+      "no_avail = 0 if obcppackets.ispacketavailable(3) else 1\n"
+      "first_chan = obcppackets.getchannelwithpacketavailable()\n"
+      "first_avail_ok = 1 if first_chan == 0 else 0\n"
+      "none_pkt = obcppackets.receivepacket(3, 0)\n"
+      "none_ok = 1 if none_pkt is None else 0\n"
+      "obcpdatapool.writeintparameter(22, 1 if (no_avail and first_avail_ok and none_ok) else 0)\n"
+      "pkt = obcppackets.receivepacket(0, 500)\n"
+      "if pkt is not None and len(pkt) == 4 and pkt[0] == 0xAA and pkt[3] == 0xDD:\n"
+      "    obcpdatapool.writeintparameter(20, 1)\n"
+      "else:\n"
+      "    obcpdatapool.writeintparameter(20, 0)\n"
+      "obcppackets.sendpacket(1, bytes([0x11,0x22,0x33,0x44,0x55,0x66,0x77,0x88]))\n"
+};
+
+/* Packet send test OBCP: runs concurrently with OBCP_PKTRECV.
+ * Tests:
+ *  - cansendpacket with a valid channel (2) and an out-of-range channel (99)
+ *  - Blocking receive (UINT32_MAX timeout) of the 8-byte packet from OBCP_PKTRECV
+ *  - Sending a 16-byte packet to the environment on channel 2
+ * Results are stored in the datapool (params 21 and 23).
+ */
+static const Harness_ObcpDef OBCP_PKTSEND = {
+   .id  = {'P','K','T','S','D'},
+   .src =
+      "import obcppackets\n"
+      "import obcpdatapool\n"
+      "can_valid = 1 if obcppackets.cansendpacket(2) else 0\n"
+      "can_invalid = 0 if obcppackets.cansendpacket(99) else 1\n"
+      "obcpdatapool.writeintparameter(23, 1 if (can_valid and can_invalid) else 0)\n"
+      "pkt = obcppackets.receivepacket(1, 4294967295)\n"
+      "if pkt is not None and len(pkt) == 8 and pkt[0] == 0x11 and pkt[7] == 0x88:\n"
+      "    obcpdatapool.writeintparameter(21, 1)\n"
+      "else:\n"
+      "    obcpdatapool.writeintparameter(21, 0)\n"
+      "obcppackets.sendpacket(2, bytes([0xA0,0xA1,0xA2,0xA3,0xA4,0xA5,0xA6,0xA7,"
+                                       "0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF]))\n"
+};
+
 /* -----------------------------------------------------------------------
  * Helpers
  * ----------------------------------------------------------------------- */
@@ -313,6 +411,15 @@ static asn1SccOBCP_Execution_Status get_status(const Harness_ObcpDef *def)
    return status;
 }
 
+static void unload_obcp(const Harness_ObcpDef *def)
+{
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_unload_obcp(&def->id, &ok);
+   if (!ok) {
+      printf("Could not unload OBCP %.5s\n", def->id);
+   }
+}
+
 /* -----------------------------------------------------------------------
  * Trigger state machine
  * ----------------------------------------------------------------------- */
@@ -325,6 +432,8 @@ typedef enum {
    PHASE_CONCURRENCY_WAIT_TEST1,
    PHASE_CONCURRENCY_ALL_RUNNING,
    PHASE_GETTIME_TEST,
+   PHASE_PACKETS_INIT,
+   PHASE_PACKETS_RUNNING,
 } Harness_Phase;
 
 void harness_PI_trigger(void)
@@ -364,8 +473,7 @@ void harness_PI_trigger(void)
             } else {
                printf("IO write tests finished — all %zu messages verified OK\n",
                       IO_TEST_EXPECTED_COUNT);
-            }
-
+            }            unload_obcp(&OBCP_IOTEST);
             if (!load_obcp(&OBCP_DPTEST)) return;
             if (!activate_obcp(&OBCP_DPTEST)) return;
 
@@ -384,6 +492,7 @@ void harness_PI_trigger(void)
 
          if (sdp == OBCP_Execution_Status_inactive) {
             printf("Datapool tests finished\n");
+            unload_obcp(&OBCP_DPTEST);
 
             if (!load_obcp(&OBCP_EVTEST)) return;
             if (!activate_obcp(&OBCP_EVTEST)) return;
@@ -418,6 +527,7 @@ void harness_PI_trigger(void)
                printf("Events test PASSED: all %zu events received in correct order\n",
                       EVENTS_TEST_EXPECTED_COUNT);
             }
+            unload_obcp(&OBCP_EVTEST);
 
             if (!load_obcp(&OBCP_TEST1)) return;
             if (!load_obcp(&OBCP_TEST2)) return;
@@ -444,8 +554,7 @@ void harness_PI_trigger(void)
                 s1, get_status(&OBCP_TEST2));
 
          if (s1 == OBCP_Execution_Status_inactive) {
-            printf("TEST1 finished — activating TEST3 (3 s)\n");
-            if (!activate_obcp(&OBCP_TEST3)) return;
+            printf("TEST1 finished — activating TEST3 (3 s)\n");            unload_obcp(&OBCP_TEST1);            if (!activate_obcp(&OBCP_TEST3)) return;
             phase = PHASE_CONCURRENCY_ALL_RUNNING;
          }
          break;
@@ -465,6 +574,8 @@ void harness_PI_trigger(void)
              s3 == OBCP_Execution_Status_inactive)
          {
             printf("Concurrency tests finished\n");
+            unload_obcp(&OBCP_TEST2);
+            unload_obcp(&OBCP_TEST3);
 
             if (!load_obcp(&OBCP_TIMETEST)) return;
             if (!activate_obcp(&OBCP_TIMETEST)) return;
@@ -506,7 +617,104 @@ void harness_PI_trigger(void)
                       elapsed_ms, TIMETEST_WAIT_MS, TIMETEST_TOLERANCE_MS);
             }
 
-            printf("All tests finished — exiting\n");
+            printf("Gettime test finished\n");
+            unload_obcp(&OBCP_TIMETEST);
+            phase = PHASE_PACKETS_INIT;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Pre-inject the env-input packet on channel 0, then activate
+       * OBCP_PKTRECV and OBCP_PKTSEND concurrently.
+       * ----------------------------------------------------------------- */
+      case PHASE_PACKETS_INIT: {
+         /* Inject a 4-byte packet from the environment into channel 0.
+          * OBCP_PKTRECV will pick it up with a timed receivepacket(). */
+         const asn1SccOBCP_Channel_Id ch0 = PKTTEST_ENV_INPUT_CHANNEL;
+         asn1SccOBCP_Packet env_in;
+         memset(&env_in, 0, sizeof(env_in));
+         env_in.arr[0] = (byte)0xAA;
+         env_in.arr[1] = (byte)0xBB;
+         env_in.arr[2] = (byte)0xCC;
+         env_in.arr[3] = (byte)0xDD;
+         env_in.nCount = 4;
+         harness_RI_receive_packet(&ch0, &env_in);
+         printf("Packets test: injected 4-byte env-input packet on channel 0\n");
+
+         if (!load_obcp(&OBCP_PKTRECV)) return;
+         if (!load_obcp(&OBCP_PKTSEND)) return;
+         if (!activate_obcp(&OBCP_PKTRECV)) return;
+         if (!activate_obcp(&OBCP_PKTSEND)) return;
+
+         pkttest_active              = true;
+         pkttest_env_output_received = false;
+         printf("Packets test OBCPs activated (PKTRECV + PKTSEND running concurrently)\n");
+         phase = PHASE_PACKETS_RUNNING;
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for both packet OBCPs to complete, then read datapool results
+       * and verify all aspects of the packets test.
+       * ----------------------------------------------------------------- */
+      case PHASE_PACKETS_RUNNING: {
+         const asn1SccOBCP_Execution_Status sr = get_status(&OBCP_PKTRECV);
+         const asn1SccOBCP_Execution_Status ss = get_status(&OBCP_PKTSEND);
+
+         if (sr == OBCP_Execution_Status_inactive &&
+             ss == OBCP_Execution_Status_inactive)
+         {
+            pkttest_active = false;
+
+            /* Read all four in-OBCP test outcomes from the datapool */
+            const asn1SccOBCP_Parameter_Type int_type = OBCP_Parameter_Type_integer_type;
+            asn1SccOBCP_Parameter_Value v;
+            const asn1SccOBCP_Parameter_Id env_recv_id  = PKTTEST_ENV_RECEIVE_PARAM_ID;
+            const asn1SccOBCP_Parameter_Id inter_id     = PKTTEST_INTER_OBCP_PARAM_ID;
+            const asn1SccOBCP_Parameter_Id nonblock_id  = PKTTEST_NONBLOCKING_PARAM_ID;
+            const asn1SccOBCP_Parameter_Id cansend_id   = PKTTEST_CANSEND_PARAM_ID;
+
+            harness_PI_get_parameter_value(&env_recv_id,  &int_type, &v);
+            const bool env_recv_ok  = (v.u.int_value == 1);
+            harness_PI_get_parameter_value(&inter_id,     &int_type, &v);
+            const bool inter_ok     = (v.u.int_value == 1);
+            harness_PI_get_parameter_value(&nonblock_id,  &int_type, &v);
+            const bool nonblock_ok  = (v.u.int_value == 1);
+            harness_PI_get_parameter_value(&cansend_id,   &int_type, &v);
+            const bool cansend_ok   = (v.u.int_value == 1);
+
+            /* Verify the 16-byte packet sent from OBCP_PKTSEND to environment */
+            bool env_out_ok = pkttest_env_output_received &&
+                              (pkttest_env_output_packet.nCount == 16);
+            if (env_out_ok) {
+               for (int i = 0; i < 16; i++) {
+                  if ((unsigned char)pkttest_env_output_packet.arr[i] !=
+                      pkttest_expected_env_output[i]) {
+                     env_out_ok = false;
+                     break;
+                  }
+               }
+            }
+
+            printf("Packets test results:\n");
+            printf("  Env\u2192OBCP receive  (ch0, 4 B, 500 ms timeout): %s\n",
+                   env_recv_ok ? "PASSED" : "FAILED");
+            printf("  OBCP-to-OBCP exchange (ch0\u21921, 8 B, blocking):  %s\n",
+                   inter_ok    ? "PASSED" : "FAILED");
+            printf("  Non-blocking + availability checks (ch3):      %s\n",
+                   nonblock_ok ? "PASSED" : "FAILED");
+            printf("  cansendpacket (valid ch2 / invalid ch99):       %s\n",
+                   cansend_ok  ? "PASSED" : "FAILED");
+            printf("  OBCP\u2192Env send      (ch2, 16 B):                %s\n",
+                   env_out_ok  ? "PASSED" : "FAILED");
+
+            const bool all_ok = env_recv_ok && inter_ok && nonblock_ok &&
+                                cansend_ok  && env_out_ok;
+            printf("Packets test overall: %s\n", all_ok ? "PASSED" : "FAILED");
+            unload_obcp(&OBCP_PKTRECV);
+            unload_obcp(&OBCP_PKTSEND);
+            printf("All tests finished \u2014 exiting\n");
             kill(getpid(), SIGTERM);
          }
          break;
