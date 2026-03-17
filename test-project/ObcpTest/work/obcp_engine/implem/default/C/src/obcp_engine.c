@@ -95,18 +95,16 @@ static uint32_t workers_count = 0;
 /* ===================================================================
  * Per-channel packet inlet buffer
  * ===================================================================
- * Each channel holds at most one packet at a time.  A Hal semaphore
- * (initially 0) allows a receiver to block until a packet arrives.
- * obcp_engine_PI_receive_packet stores the incoming packet and calls
- * Hal_SemaphoreRelease; wrapper_receive_packet consumes it.
+ * Each channel holds at most one packet at a time.  The sender polls
+ * until the slot is free before writing; the receiver polls until a
+ * packet is present.  occupied is declared volatile so the compiler
+ * does not cache it in a register across poll iterations.
  * =================================================================== */
 
 typedef struct
 {
    asn1SccOBCP_Packet packet;
-   bool               occupied;
-   int32_t            data_semaphore_id;  /* released on arrival, obtained by receiver */
-   int32_t            space_semaphore_id; /* obtained before writing, released after consuming */
+   volatile bool      occupied;
 } OBCP_PacketChannel;
 
 static OBCP_PacketChannel packet_channels[OBCP_PACKET_CHANNEL_COUNT];
@@ -395,14 +393,10 @@ static bool wrapper_receive_packet(const uint32_t channel,
    }
    else if (timeout_milliseconds == OBCP_RECEIVE_TIMEOUT_BLOCKING)
    {
-      /* Blocking wait: Hal_SemaphoreObtain blocks until
-       * obcp_engine_PI_receive_packet calls Hal_SemaphoreRelease.
-       * If a packet was already present before we get here the previous
-       * release will have incremented the semaphore count, so Obtain
-       * returns immediately — no packet is missed. */
-      if (!ch->occupied)
+      /* Blocking wait: poll until the sender deposits a packet. */
+      while (!ch->occupied)
       {
-         Hal_SemaphoreObtain(ch->data_semaphore_id);
+         Hal_SleepNs(PACKET_POLL_INTERVAL_NS);
       }
    }
    else
@@ -437,9 +431,6 @@ static bool wrapper_receive_packet(const uint32_t channel,
    memcpy(data, ch->packet.arr, copy_len);
    *length = copy_len;
    ch->occupied = false;
-
-   /* Signal that the slot is free for the next incoming packet. */
-   Hal_SemaphoreRelease(ch->space_semaphore_id);
 
    return true;
 }
@@ -479,12 +470,7 @@ void obcp_engine_startup(void)
    /* Initialise per-channel packet inlet buffers and their semaphores. */
    for (uint32_t i = 0; i < OBCP_PACKET_CHANNEL_COUNT; ++i)
    {
-      packet_channels[i].occupied        = false;
-      /* data semaphore starts at 0: obtained by receiver, released on arrival */
-      packet_channels[i].data_semaphore_id  = Hal_SemaphoreCreate();
-      /* space semaphore starts at 1: obtained before writing, released after read */
-      packet_channels[i].space_semaphore_id = Hal_SemaphoreCreate();
-      Hal_SemaphoreRelease(packet_channels[i].space_semaphore_id);
+      packet_channels[i].occupied = false;
    }
 
    /* Initialize obcpengine with callbacks to TASTE RI functions */
@@ -661,16 +647,15 @@ void obcp_engine_PI_receive_packet(const asn1SccOBCP_Channel_Id *IN_channel,
 
    OBCP_PacketChannel *ch = &packet_channels[ch_idx];
 
-   /* Block until the slot is free (space semaphore count > 0). */
-   Hal_SemaphoreObtain(ch->space_semaphore_id);
+   /* Wait until the previous packet on this channel has been consumed. */
+   while (ch->occupied)
+   {
+      Hal_SleepNs(PACKET_POLL_INTERVAL_NS);
+   }
 
-   /* Store the incoming packet, overwriting any previously unread packet
-    * on the same channel (1-packet-deep inlet buffer per channel). */
+   /* Store the incoming packet (1-packet-deep inlet buffer per channel). */
    ch->packet   = *IN_packet;
    ch->occupied = true;
-
-   /* Unblock any receiver that is waiting on this channel's data semaphore. */
-   Hal_SemaphoreRelease(ch->data_semaphore_id);
 }
 
 void obcp_engine_PI_start_obcp_engine(void)
