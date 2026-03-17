@@ -32,7 +32,7 @@ void obcp_engine_PI_can_obcp_be_loaded( const asn1SccOBCP_Id *, asn1SccT_Boolean
 void obcp_engine_PI_do_work( const asn1SccT_Int32 * );
 
 
-void obcp_engine_PI_get_obcp_status( const asn1SccOBCP_Id *, asn1SccOBCP_Execution_Status *, asn1SccT_Boolean * );
+void obcp_engine_PI_get_obcp_status( const asn1SccOBCP_Id *, asn1SccOBCP_Execution_Status *, asn1SccOBCP_Step_Id *, asn1SccT_Boolean * );
 
 
 void obcp_engine_PI_load_obcp( const asn1SccOBCP_Id *, const asn1SccOBCP_Code *, asn1SccT_Boolean * );

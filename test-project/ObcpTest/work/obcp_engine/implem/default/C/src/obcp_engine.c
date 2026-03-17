@@ -636,6 +636,7 @@ void obcp_engine_PI_can_obcp_be_loaded(const asn1SccOBCP_Id *IN_id,
 
 void obcp_engine_PI_get_obcp_status(const asn1SccOBCP_Id *IN_id,
                                     asn1SccOBCP_Execution_Status *OUT_execution_status,
+                                    asn1SccOBCP_Step_Id *OUT_step_id,
                                     asn1SccT_Boolean *OUT_success)
 
 {
@@ -646,6 +647,7 @@ void obcp_engine_PI_get_obcp_status(const asn1SccOBCP_Id *IN_id,
       return;
    }
    *OUT_execution_status = obcps[index].status;
+   *OUT_step_id          = (asn1SccOBCP_Step_Id)obcps[index].current_step;
    *OUT_success = TRUE;
 }
 

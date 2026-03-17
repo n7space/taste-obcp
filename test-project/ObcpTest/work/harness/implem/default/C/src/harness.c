@@ -154,6 +154,15 @@ void harness_PI_send_event( const asn1SccOBCP_Event_Id * event_id)
 #define PKTTEST_NONBLOCKING_PARAM_ID   22u /* 1 = non-blocking / availability checks passed */
 #define PKTTEST_CANSEND_PARAM_ID       23u /* 1 = cansendpacket checks passed */
 
+/* Datapool parameter IDs used by the begin/end-step test */
+#define STEPTEST_UNBLOCK_PARAM_ID      30u /* harness sets to 1 to unblock step 4 */
+#define STEPTEST_REACHED_STEP_PARAM_ID 31u /* OBCP writes the ID of each step it begins */
+#define STEPTEST_DONE_PARAM_ID         32u /* OBCP sets to 1 when all steps have completed */
+
+/* Expected last step number and total step count */
+#define STEPTEST_BLOCKING_STEP         4
+#define STEPTEST_LAST_STEP             6
+
 /* Expected content of the 16-byte packet sent from OBCP_PKTSEND to env */
 static const unsigned char pkttest_expected_env_output[16] = {
    0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
@@ -376,6 +385,42 @@ static const Harness_ObcpDef OBCP_PKTSEND = {
                                        "0xA8,0xA9,0xAA,0xAB,0xAC,0xAD,0xAE,0xAF]))\n"
 };
 
+/* Step test OBCP: executes six numbered steps using obcpcontrol.beginstep /
+ * endstep.  Steps 1-3 complete immediately; step 4 blocks inside beginstep
+ * until the harness sets STEPTEST_UNBLOCK_PARAM_ID (30) to 1 in the
+ * datapool; steps 5-6 complete immediately.  The OBCP records each begun
+ * step number in STEPTEST_REACHED_STEP_PARAM_ID (31) and writes 1 to
+ * STEPTEST_DONE_PARAM_ID (32) when all steps have finished.
+ */
+static const Harness_ObcpDef OBCP_STEPTEST = {
+   .id  = {'S','T','P','T','S'},
+   .src =
+      "import obcpcontrol\n"
+      "import obcpdatapool\n"
+      "import obcptime\n"
+      "obcpcontrol.beginstep(1)\n"
+      "obcpdatapool.writeintparameter(31, 1)\n"
+      "obcpcontrol.endstep(1, True)\n"
+      "obcpcontrol.beginstep(2)\n"
+      "obcpdatapool.writeintparameter(31, 2)\n"
+      "obcpcontrol.endstep(2, True)\n"
+      "obcpcontrol.beginstep(3)\n"
+      "obcpdatapool.writeintparameter(31, 3)\n"
+      "obcpcontrol.endstep(3, True)\n"
+      "obcpcontrol.beginstep(4)\n"
+      "obcpdatapool.writeintparameter(31, 4)\n"
+      "while obcpdatapool.readintparameter(30) == 0:\n"
+      "    obcptime.wait(10)\n"
+      "obcpcontrol.endstep(4, True)\n"
+      "obcpcontrol.beginstep(5)\n"
+      "obcpdatapool.writeintparameter(31, 5)\n"
+      "obcpcontrol.endstep(5, True)\n"
+      "obcpcontrol.beginstep(6)\n"
+      "obcpdatapool.writeintparameter(31, 6)\n"
+      "obcpcontrol.endstep(6, True)\n"
+      "obcpdatapool.writeintparameter(32, 1)\n"
+};
+
 /* -----------------------------------------------------------------------
  * Helpers
  * ----------------------------------------------------------------------- */
@@ -408,12 +453,25 @@ static bool activate_obcp(const Harness_ObcpDef *def)
 static asn1SccOBCP_Execution_Status get_status(const Harness_ObcpDef *def)
 {
    asn1SccOBCP_Execution_Status status = OBCP_Execution_Status_inactive;
+   asn1SccOBCP_Step_Id step_id = 0;
    asn1SccT_Boolean ok = FALSE;
-   harness_RI_get_obcp_status(&def->id, &status, &ok);
+   harness_RI_get_obcp_status(&def->id, &status, &step_id, &ok);
    if (!ok) {
       printf("Could not get status for OBCP %.5s\n", def->id);
    }
    return status;
+}
+
+static asn1SccOBCP_Step_Id get_current_step(const Harness_ObcpDef *def)
+{
+   asn1SccOBCP_Execution_Status status = OBCP_Execution_Status_inactive;
+   asn1SccOBCP_Step_Id step_id = 0;
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_get_obcp_status(&def->id, &status, &step_id, &ok);
+   if (!ok) {
+      printf("Could not get status for OBCP %.5s\n", def->id);
+   }
+   return step_id;
 }
 
 static void unload_obcp(const Harness_ObcpDef *def)
@@ -434,6 +492,8 @@ typedef enum {
    PHASE_IO_WRITE_TEST,
    PHASE_DATAPOOL_TEST,
    PHASE_EVENTS_TEST,
+   PHASE_STEP_TEST_WAIT_STEP4,
+   PHASE_STEP_TEST_COMPLETE,
    PHASE_CONCURRENCY_WAIT_TEST1,
    PHASE_CONCURRENCY_ALL_RUNNING,
    PHASE_GETTIME_TEST,
@@ -533,6 +593,78 @@ void harness_PI_trigger(void)
                       EVENTS_TEST_EXPECTED_COUNT);
             }
             unload_obcp(&OBCP_EVTEST);
+
+            /* Initialise step test datapool entries to zero before loading */
+            {
+               const asn1SccOBCP_Parameter_Id unblock_id = STEPTEST_UNBLOCK_PARAM_ID;
+               const asn1SccOBCP_Parameter_Id reached_id = STEPTEST_REACHED_STEP_PARAM_ID;
+               const asn1SccOBCP_Parameter_Id done_id    = STEPTEST_DONE_PARAM_ID;
+               asn1SccOBCP_Parameter_Value zero_val;
+               zero_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
+               zero_val.u.int_value = 0;
+               harness_PI_set_parameter_value(&unblock_id, &zero_val);
+               harness_PI_set_parameter_value(&reached_id, &zero_val);
+               harness_PI_set_parameter_value(&done_id,    &zero_val);
+            }
+
+            if (!load_obcp(&OBCP_STEPTEST)) return;
+            if (!activate_obcp(&OBCP_STEPTEST)) return;
+
+            printf("Step test OBCP activated\n");
+            phase = PHASE_STEP_TEST_WAIT_STEP4;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Poll until the OBCP reports that step 4 has begun, confirm it,
+       * then unblock the OBCP by setting the unblock datapool parameter.
+       * ----------------------------------------------------------------- */
+      case PHASE_STEP_TEST_WAIT_STEP4: {
+         const asn1SccOBCP_Step_Id current_step = get_current_step(&OBCP_STEPTEST);
+
+         if (current_step == STEPTEST_BLOCKING_STEP) {
+            printf("Step test: get_obcp_status reports step %u active — unblocking OBCP\n",
+                   (unsigned)current_step);
+            const asn1SccOBCP_Parameter_Id unblock_id = STEPTEST_UNBLOCK_PARAM_ID;
+            asn1SccOBCP_Parameter_Value one_val;
+            one_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
+            one_val.u.int_value = 1;
+            harness_PI_set_parameter_value(&unblock_id, &one_val);
+            phase = PHASE_STEP_TEST_COMPLETE;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for the step test OBCP to finish, then verify that all
+       * steps were executed and launch the concurrency tests.
+       * ----------------------------------------------------------------- */
+      case PHASE_STEP_TEST_COMPLETE: {
+         const asn1SccOBCP_Execution_Status ss = get_status(&OBCP_STEPTEST);
+
+         if (ss == OBCP_Execution_Status_inactive) {
+            const asn1SccOBCP_Parameter_Type int_type  = OBCP_Parameter_Type_integer_type;
+            asn1SccOBCP_Parameter_Value v;
+            const asn1SccOBCP_Parameter_Id reached_id = STEPTEST_REACHED_STEP_PARAM_ID;
+            const asn1SccOBCP_Parameter_Id done_id    = STEPTEST_DONE_PARAM_ID;
+
+            harness_PI_get_parameter_value(&reached_id, &int_type, &v);
+            const int32_t last_step = v.u.int_value;
+            harness_PI_get_parameter_value(&done_id, &int_type, &v);
+            const bool steps_done = (v.u.int_value == 1);
+
+            if (steps_done && last_step == STEPTEST_LAST_STEP) {
+               printf("Step test PASSED: all %d steps completed, "
+                      "step %d hold-and-release verified\n",
+                      STEPTEST_LAST_STEP, STEPTEST_BLOCKING_STEP);
+            } else {
+               printf("Step test FAILED: steps_done=%d, last_step=%d "
+                      "(expected %d)\n",
+                      (int)steps_done, (int)last_step, STEPTEST_LAST_STEP);
+            }
+
+            unload_obcp(&OBCP_STEPTEST);
 
             if (!load_obcp(&OBCP_TEST1)) return;
             if (!load_obcp(&OBCP_TEST2)) return;

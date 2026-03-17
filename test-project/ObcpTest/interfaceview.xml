@@ -1,49 +1,19 @@
 <InterfaceView version="1.3" asn1file="ObcpTest.acn" UiFile="interfaceview.ui.xml" modifierHash="d3ee615">
-<Function id="{5ecbb728-5c2e-47da-8e86-f7ec2f4c7287}" name="tmpworker" is_type="NO" language="SDL" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_min="1" startup_priority="1" instances_max="1">
-    <Property name="TASTE_IV_Properties::Default_Codegen" value="Ada"/>
-<Provided_Interface id="{d1b6899f-9e08-40f2-b21a-f043b6fded22}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-</Provided_Interface>
-
-<Provided_Interface id="{708006ab-7e9e-42b5-beb1-81be21152448}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" priority="1" stack_size="1024" miat="0" wcet="0" queue_size="1">
-    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Required_Interface id="{22ccf0b0-e20d-4d99-b569-003691dec787}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
-    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{aa732094-152f-445d-aefc-1d40780ca78e}" name="release_worker" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{2cc251eb-dc26-431a-9e94-07ae969a0f83}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-    <Implementations>
-        <Implementation name="default" language="SDL"/>
-    </Implementations>
-</Function>
-
-<Function id="{aecefbae-e444-4385-8a08-12dbc0212424}" name="tmpworker2" is_type="NO" language="SDL" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_min="1" startup_priority="1" instances_max="1">
+<Function id="{aecefbae-e444-4385-8a08-12dbc0212424}" name="tmpworker2" is_type="NO" language="SDL" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_max="1" startup_priority="1" instances_min="1">
     <Property name="TASTE_IV_Properties::Default_Codegen" value="Ada"/>
 <Provided_Interface id="{2dc5551b-4657-4159-828b-2f3e6d2bee67}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
 </Provided_Interface>
 
-<Provided_Interface id="{95376d60-9096-40f2-8677-d6f1ea2338f4}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" priority="1" stack_size="1024" miat="0" wcet="0" queue_size="1">
+<Provided_Interface id="{95376d60-9096-40f2-8677-d6f1ea2338f4}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" stack_size="1024" queue_size="1" priority="1" miat="0" wcet="0">
     <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
 </Provided_Interface>
 
-<Required_Interface id="{5460e0af-b020-4360-a72a-10466eb78664}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
+<Required_Interface id="{5460e0af-b020-4360-a72a-10466eb78664}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
     <Property name="Taste::InheritPI" value="true"/>
     <Property name="Taste::Autonamed" value="true"/>
 </Required_Interface>
 
-<Required_Interface id="{49c7c153-170a-4b3e-8a93-409b36ba1545}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
+<Required_Interface id="{49c7c153-170a-4b3e-8a93-409b36ba1545}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
     <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
     <Property name="Taste::InheritPI" value="true"/>
     <Property name="Taste::Autonamed" value="true"/>
@@ -59,134 +29,39 @@
     </Implementations>
 </Function>
 
-<Function id="{e3b27661-e3de-4e1b-85d9-a75639db4e77}" name="obcp_engine" is_type="NO" language="C" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_min="1" startup_priority="1" instances_max="1">
+<Function id="{5ecbb728-5c2e-47da-8e86-f7ec2f4c7287}" name="tmpworker" is_type="NO" language="SDL" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_max="1" startup_priority="1" instances_min="1">
     <Property name="TASTE_IV_Properties::Default_Codegen" value="Ada"/>
-<Provided_Interface id="{5c5773ed-dcce-4ecc-8a11-2c9060d143fd}" name="start_obcp_engine" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+<Provided_Interface id="{d1b6899f-9e08-40f2-b21a-f043b6fded22}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
 </Provided_Interface>
 
-<Provided_Interface id="{2700bb56-a7bb-4d55-9b9f-7bd90b503727}" name="stop_obcp_engine" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-</Provided_Interface>
-
-<Provided_Interface id="{38736484-7cdc-4dc6-9a9b-318054eac31e}" name="can_obcp_be_loaded" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{cd43734a-7bba-4a8a-84d7-e80c3a577173}" name="can_obcp_be_activated" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{a8fc75c4-06fb-490f-92c4-4f0f71e45499}" name="load_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Input_Parameter name="code" type="OBCP-Code" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{03bb5c20-3ac4-4c6e-8588-2f044792cfde}" name="unload_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{165c59b5-4b84-47f1-b440-2615e0000733}" name="activate_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{dbb19eb2-9472-4a16-8180-f1e9f190a973}" name="abort_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{bf08590f-9478-4d76-9ea5-cb508d87e94a}" name="get_obcp_status" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Output_Parameter name="execution_status" type="OBCP-Execution-Status" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{1912deb5-0f3a-424f-8da3-2fe4df15b0a5}" name="receive_packet" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="channel" type="OBCP-Channel-Id" encoding="NATIVE"/>
-    <Input_Parameter name="packet" type="OBCP-Packet" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{e88004da-bc68-4e13-a045-2310df42a33d}" name="stop_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
-    <Input_Parameter name="step_id" type="OBCP-Step-Id" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-</Provided_Interface>
-
-<Provided_Interface id="{20615ef0-d789-4d75-ac2d-1fd006fe986a}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
+<Provided_Interface id="{708006ab-7e9e-42b5-beb1-81be21152448}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" stack_size="1024" queue_size="1" priority="1" miat="0" wcet="0">
     <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
 </Provided_Interface>
 
-<Provided_Interface id="{92b12854-ae1b-40e9-be7d-507e944342b9}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
-</Provided_Interface>
-
-<Provided_Interface id="{bafaf52e-2e2a-46a7-a460-143910aba67d}" name="release_worker" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-</Provided_Interface>
-
-<Required_Interface id="{7b6873b4-56c1-468f-92a1-c0690e2d14c9}" name="send_packet" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="channel" type="OBCP-Channel-Id" encoding="NATIVE"/>
-    <Input_Parameter name="packet" type="OBCP-Packet" encoding="NATIVE"/>
-    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{677dba76-21d1-427e-8e86-83c67471704a}" name="output_message" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="text" type="OBCP-Text" encoding="NATIVE"/>
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{7bedb91c-2dd3-4d63-82a2-4c5bdfdf010e}" name="send_event" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Event-Id" encoding="NATIVE"/>
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{ce2a3b1b-7942-469f-9b26-f553deafe9d9}" name="get_current_time" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
-    <Output_Parameter name="seconds" type="T-Int32" encoding="NATIVE"/>
-    <Output_Parameter name="milliseconds" type="T-Int32" encoding="NATIVE"/>
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{0e0e61ec-e254-48ca-b3f1-9d5ea9ce1045}" name="get_parameter_value" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Parameter-Id" encoding="NATIVE"/>
-    <Input_Parameter name="parameter_type" type="OBCP-Parameter-Type" encoding="NATIVE"/>
-    <Output_Parameter name="parameter_value" type="OBCP-Parameter-Value" encoding="NATIVE"/>
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{4da3ffaf-de64-4b35-8a38-66d8c2647faa}" name="set_parameter_value" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
-    <Input_Parameter name="id" type="OBCP-Parameter-Id" encoding="NATIVE"/>
-    <Input_Parameter name="parameter_value" type="OBCP-Parameter-Value" encoding="NATIVE"/>
-    <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="true"/>
-</Required_Interface>
-
-<Required_Interface id="{70fa3b4c-a648-4509-b4e7-a5310acea3a9}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" priority="1" stack_size="1024" miat="0" wcet="0" queue_size="1">
+<Required_Interface id="{22ccf0b0-e20d-4d99-b569-003691dec787}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
     <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
     <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="false"/>
+    <Property name="Taste::Autonamed" value="true"/>
 </Required_Interface>
 
-<Required_Interface id="{a6892e14-7ef8-4555-88b5-14dfc3b399e9}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+<Required_Interface id="{aa732094-152f-445d-aefc-1d40780ca78e}" name="release_worker" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
     <Property name="Taste::InheritPI" value="true"/>
-    <Property name="Taste::Autonamed" value="false"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{2cc251eb-dc26-431a-9e94-07ae969a0f83}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
 </Required_Interface>
 
     <Implementations>
-        <Implementation name="default" language="C"/>
+        <Implementation name="default" language="SDL"/>
     </Implementations>
 </Function>
 
-<Function id="{77ff0526-690c-4d77-bdd3-9a7ac59430f4}" name="harness" is_type="NO" language="C" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_min="1" startup_priority="1" instances_max="1">
+<Function id="{77ff0526-690c-4d77-bdd3-9a7ac59430f4}" name="harness" is_type="NO" language="C" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_max="1" startup_priority="1" instances_min="1">
     <Property name="TASTE_IV_Properties::Default_Codegen" value="Ada"/>
-<Provided_Interface id="{734559ae-22c8-4621-a5c5-a55b622d2167}" name="trigger" kind="Cyclic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" dispatch_offset="0" priority="1" stack_size="1024" wcet="0" period="1000">
+<Provided_Interface id="{734559ae-22c8-4621-a5c5-a55b622d2167}" name="trigger" kind="Cyclic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" stack_size="1024" priority="1" period="1000" dispatch_offset="0" wcet="0">
 </Provided_Interface>
 
 <Provided_Interface id="{29acc67a-00b5-4203-87ef-f7766f9d07d4}" name="set_parameter_value" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
@@ -210,7 +85,7 @@
     <Input_Parameter name="text" type="OBCP-Text" encoding="NATIVE"/>
 </Provided_Interface>
 
-<Provided_Interface id="{bd7dad3e-8823-4487-86ce-208cf5cb8843}" name="get_current_time" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
+<Provided_Interface id="{bd7dad3e-8823-4487-86ce-208cf5cb8843}" name="get_current_time" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
     <Output_Parameter name="seconds" type="T-Int32" encoding="NATIVE"/>
     <Output_Parameter name="milliseconds" type="T-Int32" encoding="NATIVE"/>
 </Provided_Interface>
@@ -283,6 +158,7 @@
 <Required_Interface id="{09079185-0ac2-4d5e-bd26-3e910d72156e}" name="get_obcp_status" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
     <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
     <Output_Parameter name="execution_status" type="OBCP-Execution-Status" encoding="NATIVE"/>
+    <Output_Parameter name="step_id" type="OBCP-Step-Id" encoding="NATIVE"/>
     <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
     <Property name="Taste::InheritPI" value="true"/>
     <Property name="Taste::Autonamed" value="true"/>
@@ -301,29 +177,155 @@
     </Implementations>
 </Function>
 
-<Connection id="{6773143f-e1da-4631-a154-a6a0fc1a8814}" required_system_element="NO">
-    <Source iface_id="{9c107f94-d2ac-4c14-8850-7ddb1407147e}" func_name="harness" ri_name="stop_obcp_engine" />
-    <Target iface_id="{2700bb56-a7bb-4d55-9b9f-7bd90b503727}" func_name="obcp_engine" pi_name="stop_obcp_engine" />
+<Function id="{e3b27661-e3de-4e1b-85d9-a75639db4e77}" name="obcp_engine" is_type="NO" language="C" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_max="1" startup_priority="1" instances_min="1">
+    <Property name="TASTE_IV_Properties::Default_Codegen" value="Ada"/>
+<Provided_Interface id="{5c5773ed-dcce-4ecc-8a11-2c9060d143fd}" name="start_obcp_engine" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Provided_Interface id="{2700bb56-a7bb-4d55-9b9f-7bd90b503727}" name="stop_obcp_engine" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Provided_Interface id="{38736484-7cdc-4dc6-9a9b-318054eac31e}" name="can_obcp_be_loaded" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{cd43734a-7bba-4a8a-84d7-e80c3a577173}" name="can_obcp_be_activated" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{a8fc75c4-06fb-490f-92c4-4f0f71e45499}" name="load_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Input_Parameter name="code" type="OBCP-Code" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{03bb5c20-3ac4-4c6e-8588-2f044792cfde}" name="unload_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{165c59b5-4b84-47f1-b440-2615e0000733}" name="activate_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{dbb19eb2-9472-4a16-8180-f1e9f190a973}" name="abort_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{bf08590f-9478-4d76-9ea5-cb508d87e94a}" name="get_obcp_status" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="execution_status" type="OBCP-Execution-Status" encoding="NATIVE"/>
+    <Output_Parameter name="step_id" type="OBCP-Step-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{1912deb5-0f3a-424f-8da3-2fe4df15b0a5}" name="receive_packet" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="channel" type="OBCP-Channel-Id" encoding="NATIVE"/>
+    <Input_Parameter name="packet" type="OBCP-Packet" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{e88004da-bc68-4e13-a045-2310df42a33d}" name="stop_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Input_Parameter name="step_id" type="OBCP-Step-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{20615ef0-d789-4d75-ac2d-1fd006fe986a}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{92b12854-ae1b-40e9-be7d-507e944342b9}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
+</Provided_Interface>
+
+<Provided_Interface id="{bafaf52e-2e2a-46a7-a460-143910aba67d}" name="release_worker" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Required_Interface id="{7b6873b4-56c1-468f-92a1-c0690e2d14c9}" name="send_packet" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="channel" type="OBCP-Channel-Id" encoding="NATIVE"/>
+    <Input_Parameter name="packet" type="OBCP-Packet" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{677dba76-21d1-427e-8e86-83c67471704a}" name="output_message" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="text" type="OBCP-Text" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{7bedb91c-2dd3-4d63-82a2-4c5bdfdf010e}" name="send_event" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Event-Id" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{ce2a3b1b-7942-469f-9b26-f553deafe9d9}" name="get_current_time" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_alarm="false" is_observable="false" wcet="0">
+    <Output_Parameter name="seconds" type="T-Int32" encoding="NATIVE"/>
+    <Output_Parameter name="milliseconds" type="T-Int32" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{0e0e61ec-e254-48ca-b3f1-9d5ea9ce1045}" name="get_parameter_value" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Parameter-Id" encoding="NATIVE"/>
+    <Input_Parameter name="parameter_type" type="OBCP-Parameter-Type" encoding="NATIVE"/>
+    <Output_Parameter name="parameter_value" type="OBCP-Parameter-Value" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{4da3ffaf-de64-4b35-8a38-66d8c2647faa}" name="set_parameter_value" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Parameter-Id" encoding="NATIVE"/>
+    <Input_Parameter name="parameter_value" type="OBCP-Parameter-Value" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{70fa3b4c-a648-4509-b4e7-a5310acea3a9}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" stack_size="1024" queue_size="1" priority="1" miat="0" wcet="0">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{a6892e14-7ef8-4555-88b5-14dfc3b399e9}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+    <Implementations>
+        <Implementation name="default" language="C"/>
+    </Implementations>
+</Function>
+
+<Connection id="{78155789-dc14-4c58-b70b-54864fe0c23b}" required_system_element="NO">
+    <Source iface_id="{70fa3b4c-a648-4509-b4e7-a5310acea3a9}" func_name="obcp_engine" ri_name="activate_worker" />
+    <Target iface_id="{708006ab-7e9e-42b5-beb1-81be21152448}" func_name="tmpworker" pi_name="activate_worker" />
 </Connection>
 
-<Connection id="{6d6a80cd-ab9a-4e5f-ad61-ac7602e4c562}" required_system_element="NO">
-    <Source iface_id="{b32b964c-4861-4883-807a-606310ef788b}" func_name="harness" ri_name="unload_obcp" />
-    <Target iface_id="{03bb5c20-3ac4-4c6e-8588-2f044792cfde}" func_name="obcp_engine" pi_name="unload_obcp" />
+<Connection id="{0304d9a8-362e-405c-aff1-7e268dd11c85}" required_system_element="NO">
+    <Source iface_id="{7b6873b4-56c1-468f-92a1-c0690e2d14c9}" func_name="obcp_engine" ri_name="send_packet" />
+    <Target iface_id="{427584a0-08f2-44a9-9e2d-563b81e455b9}" func_name="harness" pi_name="send_packet" />
 </Connection>
 
-<Connection id="{368d6156-5105-47a0-8f0a-4e2716d60e31}" required_system_element="NO">
-    <Source iface_id="{a6892e14-7ef8-4555-88b5-14dfc3b399e9}" func_name="obcp_engine" ri_name="initiate_registration" />
-    <Target iface_id="{2dc5551b-4657-4159-828b-2f3e6d2bee67}" func_name="tmpworker2" pi_name="initiate_registration" />
+<Connection id="{23cd0015-0284-460b-a79e-bd6444c483ca}" required_system_element="NO">
+    <Source iface_id="{70fa3b4c-a648-4509-b4e7-a5310acea3a9}" func_name="obcp_engine" ri_name="activate_worker" />
+    <Target iface_id="{95376d60-9096-40f2-8677-d6f1ea2338f4}" func_name="tmpworker2" pi_name="activate_worker" />
 </Connection>
 
-<Connection id="{d94e7617-e687-43ae-b081-93d7bc0d6c08}" required_system_element="NO">
-    <Source iface_id="{0e0e61ec-e254-48ca-b3f1-9d5ea9ce1045}" func_name="obcp_engine" ri_name="get_parameter_value" />
-    <Target iface_id="{a822ec7e-6af3-4159-b3f9-9058dd0d8355}" func_name="harness" pi_name="get_parameter_value" />
+<Connection id="{da436f0b-c6b0-4fc1-82ae-23612d7ea4dd}" required_system_element="NO">
+    <Source iface_id="{677dba76-21d1-427e-8e86-83c67471704a}" func_name="obcp_engine" ri_name="output_message" />
+    <Target iface_id="{f758e769-e39a-48fb-98c6-447b604f31d4}" func_name="harness" pi_name="output_message" />
 </Connection>
 
-<Connection id="{8ecf1fee-e455-4c9d-87dc-d1104bf899dd}" required_system_element="NO">
-    <Source iface_id="{1f79c100-6722-478e-9d5b-e68ac50fd5fa}" func_name="harness" ri_name="abort_obcp" />
-    <Target iface_id="{dbb19eb2-9472-4a16-8180-f1e9f190a973}" func_name="obcp_engine" pi_name="abort_obcp" />
+<Connection id="{5119f00a-c773-4545-b8f5-31f19f642393}" required_system_element="NO">
+    <Source iface_id="{c60e0b19-cee3-40cc-9399-e9a11d98bc64}" func_name="harness" ri_name="can_obcp_be_loaded" />
+    <Target iface_id="{38736484-7cdc-4dc6-9a9b-318054eac31e}" func_name="obcp_engine" pi_name="can_obcp_be_loaded" />
 </Connection>
 
 <Connection id="{456bf882-c7a4-4a4f-ad6e-eb0e25784f40}" required_system_element="NO">
@@ -346,49 +348,54 @@
     <Target iface_id="{92b12854-ae1b-40e9-be7d-507e944342b9}" func_name="obcp_engine" pi_name="register_worker" />
 </Connection>
 
-<Connection id="{5119f00a-c773-4545-b8f5-31f19f642393}" required_system_element="NO">
-    <Source iface_id="{c60e0b19-cee3-40cc-9399-e9a11d98bc64}" func_name="harness" ri_name="can_obcp_be_loaded" />
-    <Target iface_id="{38736484-7cdc-4dc6-9a9b-318054eac31e}" func_name="obcp_engine" pi_name="can_obcp_be_loaded" />
+<Connection id="{8ecf1fee-e455-4c9d-87dc-d1104bf899dd}" required_system_element="NO">
+    <Source iface_id="{1f79c100-6722-478e-9d5b-e68ac50fd5fa}" func_name="harness" ri_name="abort_obcp" />
+    <Target iface_id="{dbb19eb2-9472-4a16-8180-f1e9f190a973}" func_name="obcp_engine" pi_name="abort_obcp" />
 </Connection>
 
-<Connection id="{da436f0b-c6b0-4fc1-82ae-23612d7ea4dd}" required_system_element="NO">
-    <Source iface_id="{677dba76-21d1-427e-8e86-83c67471704a}" func_name="obcp_engine" ri_name="output_message" />
-    <Target iface_id="{f758e769-e39a-48fb-98c6-447b604f31d4}" func_name="harness" pi_name="output_message" />
+<Connection id="{6d6a80cd-ab9a-4e5f-ad61-ac7602e4c562}" required_system_element="NO">
+    <Source iface_id="{b32b964c-4861-4883-807a-606310ef788b}" func_name="harness" ri_name="unload_obcp" />
+    <Target iface_id="{03bb5c20-3ac4-4c6e-8588-2f044792cfde}" func_name="obcp_engine" pi_name="unload_obcp" />
 </Connection>
 
-<Connection id="{23cd0015-0284-460b-a79e-bd6444c483ca}" required_system_element="NO">
-    <Source iface_id="{70fa3b4c-a648-4509-b4e7-a5310acea3a9}" func_name="obcp_engine" ri_name="activate_worker" />
-    <Target iface_id="{95376d60-9096-40f2-8677-d6f1ea2338f4}" func_name="tmpworker2" pi_name="activate_worker" />
+<Connection id="{368d6156-5105-47a0-8f0a-4e2716d60e31}" required_system_element="NO">
+    <Source iface_id="{a6892e14-7ef8-4555-88b5-14dfc3b399e9}" func_name="obcp_engine" ri_name="initiate_registration" />
+    <Target iface_id="{2dc5551b-4657-4159-828b-2f3e6d2bee67}" func_name="tmpworker2" pi_name="initiate_registration" />
 </Connection>
 
-<Connection id="{78155789-dc14-4c58-b70b-54864fe0c23b}" required_system_element="NO">
-    <Source iface_id="{70fa3b4c-a648-4509-b4e7-a5310acea3a9}" func_name="obcp_engine" ri_name="activate_worker" />
-    <Target iface_id="{708006ab-7e9e-42b5-beb1-81be21152448}" func_name="tmpworker" pi_name="activate_worker" />
+<Connection id="{d94e7617-e687-43ae-b081-93d7bc0d6c08}" required_system_element="NO">
+    <Source iface_id="{0e0e61ec-e254-48ca-b3f1-9d5ea9ce1045}" func_name="obcp_engine" ri_name="get_parameter_value" />
+    <Target iface_id="{a822ec7e-6af3-4159-b3f9-9058dd0d8355}" func_name="harness" pi_name="get_parameter_value" />
 </Connection>
 
-<Connection id="{0304d9a8-362e-405c-aff1-7e268dd11c85}" required_system_element="NO">
-    <Source iface_id="{7b6873b4-56c1-468f-92a1-c0690e2d14c9}" func_name="obcp_engine" ri_name="send_packet" />
-    <Target iface_id="{427584a0-08f2-44a9-9e2d-563b81e455b9}" func_name="harness" pi_name="send_packet" />
+<Connection id="{6773143f-e1da-4631-a154-a6a0fc1a8814}" required_system_element="NO">
+    <Source iface_id="{9c107f94-d2ac-4c14-8850-7ddb1407147e}" func_name="harness" ri_name="stop_obcp_engine" />
+    <Target iface_id="{2700bb56-a7bb-4d55-9b9f-7bd90b503727}" func_name="obcp_engine" pi_name="stop_obcp_engine" />
 </Connection>
 
-<Connection id="{fcfbdfee-0a26-46d8-8a76-ca234d3a3c38}" required_system_element="NO">
-    <Source iface_id="{aa732094-152f-445d-aefc-1d40780ca78e}" func_name="tmpworker" ri_name="release_worker" />
-    <Target iface_id="{bafaf52e-2e2a-46a7-a460-143910aba67d}" func_name="obcp_engine" pi_name="release_worker" />
+<Connection id="{626a4980-8a49-4a92-96fb-24e0672eaf8f}" required_system_element="NO">
+    <Source iface_id="{ad48c393-63b6-433c-96b9-b12f120d71db}" func_name="harness" ri_name="can_obcp_be_activated" />
+    <Target iface_id="{cd43734a-7bba-4a8a-84d7-e80c3a577173}" func_name="obcp_engine" pi_name="can_obcp_be_activated" />
 </Connection>
 
-<Connection id="{e906d388-9064-432e-ab6d-0ea74ec9cf89}" required_system_element="NO">
-    <Source iface_id="{49c7c153-170a-4b3e-8a93-409b36ba1545}" func_name="tmpworker2" ri_name="do_work" />
-    <Target iface_id="{20615ef0-d789-4d75-ac2d-1fd006fe986a}" func_name="obcp_engine" pi_name="do_work" />
+<Connection id="{cdc07f0b-59b2-4927-b66d-ead246f64fd9}" required_system_element="NO">
+    <Source iface_id="{7bedb91c-2dd3-4d63-82a2-4c5bdfdf010e}" func_name="obcp_engine" ri_name="send_event" />
+    <Target iface_id="{ad16d091-2d60-4dea-a5e6-6d25026ed5fa}" func_name="harness" pi_name="send_event" />
 </Connection>
 
-<Connection id="{43caceee-3303-4916-8254-42efaab6fbf3}" required_system_element="NO">
-    <Source iface_id="{cbcc4a24-a149-41d5-a836-5875a522ce40}" func_name="harness" ri_name="activate_obcp" />
-    <Target iface_id="{165c59b5-4b84-47f1-b440-2615e0000733}" func_name="obcp_engine" pi_name="activate_obcp" />
+<Connection id="{03947197-4053-43b6-af95-916866f6cc15}" required_system_element="NO">
+    <Source iface_id="{ad485b78-d0ae-4293-81ae-844ee9f38065}" func_name="harness" ri_name="stop_obcp" />
+    <Target iface_id="{e88004da-bc68-4e13-a045-2310df42a33d}" func_name="obcp_engine" pi_name="stop_obcp" />
 </Connection>
 
-<Connection id="{7f136993-5c08-40e1-be65-866532661007}" required_system_element="NO">
-    <Source iface_id="{4da3ffaf-de64-4b35-8a38-66d8c2647faa}" func_name="obcp_engine" ri_name="set_parameter_value" />
-    <Target iface_id="{29acc67a-00b5-4203-87ef-f7766f9d07d4}" func_name="harness" pi_name="set_parameter_value" />
+<Connection id="{baa21c8b-d2b2-4437-8d4e-6770a41d26f3}" required_system_element="NO">
+    <Source iface_id="{bf0a37ba-2844-4427-a34d-34ed0cd3f32e}" func_name="harness" ri_name="start_obcp_engine" />
+    <Target iface_id="{5c5773ed-dcce-4ecc-8a11-2c9060d143fd}" func_name="obcp_engine" pi_name="start_obcp_engine" />
+</Connection>
+
+<Connection id="{61f5ea67-edd1-4122-937d-e01767db6623}" required_system_element="NO">
+    <Source iface_id="{5460e0af-b020-4360-a72a-10466eb78664}" func_name="tmpworker2" ri_name="register_worker" />
+    <Target iface_id="{92b12854-ae1b-40e9-be7d-507e944342b9}" func_name="obcp_engine" pi_name="register_worker" />
 </Connection>
 
 <Connection id="{5d0b682f-8c1b-4dcd-a2ac-6d3d3e7c789a}" required_system_element="NO">
@@ -411,29 +418,24 @@
     <Target iface_id="{20615ef0-d789-4d75-ac2d-1fd006fe986a}" func_name="obcp_engine" pi_name="do_work" />
 </Connection>
 
-<Connection id="{61f5ea67-edd1-4122-937d-e01767db6623}" required_system_element="NO">
-    <Source iface_id="{5460e0af-b020-4360-a72a-10466eb78664}" func_name="tmpworker2" ri_name="register_worker" />
-    <Target iface_id="{92b12854-ae1b-40e9-be7d-507e944342b9}" func_name="obcp_engine" pi_name="register_worker" />
+<Connection id="{43caceee-3303-4916-8254-42efaab6fbf3}" required_system_element="NO">
+    <Source iface_id="{cbcc4a24-a149-41d5-a836-5875a522ce40}" func_name="harness" ri_name="activate_obcp" />
+    <Target iface_id="{165c59b5-4b84-47f1-b440-2615e0000733}" func_name="obcp_engine" pi_name="activate_obcp" />
 </Connection>
 
-<Connection id="{cdc07f0b-59b2-4927-b66d-ead246f64fd9}" required_system_element="NO">
-    <Source iface_id="{7bedb91c-2dd3-4d63-82a2-4c5bdfdf010e}" func_name="obcp_engine" ri_name="send_event" />
-    <Target iface_id="{ad16d091-2d60-4dea-a5e6-6d25026ed5fa}" func_name="harness" pi_name="send_event" />
+<Connection id="{7f136993-5c08-40e1-be65-866532661007}" required_system_element="NO">
+    <Source iface_id="{4da3ffaf-de64-4b35-8a38-66d8c2647faa}" func_name="obcp_engine" ri_name="set_parameter_value" />
+    <Target iface_id="{29acc67a-00b5-4203-87ef-f7766f9d07d4}" func_name="harness" pi_name="set_parameter_value" />
 </Connection>
 
-<Connection id="{03947197-4053-43b6-af95-916866f6cc15}" required_system_element="NO">
-    <Source iface_id="{ad485b78-d0ae-4293-81ae-844ee9f38065}" func_name="harness" ri_name="stop_obcp" />
-    <Target iface_id="{e88004da-bc68-4e13-a045-2310df42a33d}" func_name="obcp_engine" pi_name="stop_obcp" />
+<Connection id="{e906d388-9064-432e-ab6d-0ea74ec9cf89}" required_system_element="NO">
+    <Source iface_id="{49c7c153-170a-4b3e-8a93-409b36ba1545}" func_name="tmpworker2" ri_name="do_work" />
+    <Target iface_id="{20615ef0-d789-4d75-ac2d-1fd006fe986a}" func_name="obcp_engine" pi_name="do_work" />
 </Connection>
 
-<Connection id="{baa21c8b-d2b2-4437-8d4e-6770a41d26f3}" required_system_element="NO">
-    <Source iface_id="{bf0a37ba-2844-4427-a34d-34ed0cd3f32e}" func_name="harness" ri_name="start_obcp_engine" />
-    <Target iface_id="{5c5773ed-dcce-4ecc-8a11-2c9060d143fd}" func_name="obcp_engine" pi_name="start_obcp_engine" />
-</Connection>
-
-<Connection id="{626a4980-8a49-4a92-96fb-24e0672eaf8f}" required_system_element="NO">
-    <Source iface_id="{ad48c393-63b6-433c-96b9-b12f120d71db}" func_name="harness" ri_name="can_obcp_be_activated" />
-    <Target iface_id="{cd43734a-7bba-4a8a-84d7-e80c3a577173}" func_name="obcp_engine" pi_name="can_obcp_be_activated" />
+<Connection id="{fcfbdfee-0a26-46d8-8a76-ca234d3a3c38}" required_system_element="NO">
+    <Source iface_id="{aa732094-152f-445d-aefc-1d40780ca78e}" func_name="tmpworker" ri_name="release_worker" />
+    <Target iface_id="{bafaf52e-2e2a-46a7-a460-143910aba67d}" func_name="obcp_engine" pi_name="release_worker" />
 </Connection>
 
 <Layer name="default" is_visible="true"/>
