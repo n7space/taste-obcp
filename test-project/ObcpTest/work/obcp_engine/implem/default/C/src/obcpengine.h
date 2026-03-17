@@ -16,6 +16,7 @@ typedef enum {
   obcp_thread_local_value_index_mp_state = 0,
   obcp_thread_local_value_index_buffer = 1,
   obcp_thread_local_value_index_buffer_length = 2,
+  obcp_thread_local_value_index_obcp_index = 3,
   obcp_thread_local_value_index_max
 } obcp_thread_local_value_index;
 

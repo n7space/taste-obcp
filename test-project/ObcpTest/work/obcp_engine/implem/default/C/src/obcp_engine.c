@@ -48,7 +48,7 @@ extern bool     Hal_SemaphoreRelease(int32_t id);
 /* Packet receive buffer per worker — must be large enough to hold the
  * largest possible OBCP_Packet payload (127 bytes per the ASN.1 model). */
 #ifndef OBCP_PACKET_BUFFER_SIZE
-#define OBCP_PACKET_BUFFER_SIZE (127)
+#define OBCP_PACKET_BUFFER_SIZE (asn1SccOBCP_Packet_REQUIRED_BYTES_FOR_ENCODING)
 #endif
 
 #ifndef OBCP_PACKET_CHANNEL_COUNT
@@ -62,12 +62,16 @@ extern bool     Hal_SemaphoreRelease(int32_t id);
  * blocking wait (unblocked by an incoming packet via the channel semaphore). */
 #define OBCP_RECEIVE_TIMEOUT_BLOCKING  (~(uint32_t)0U)
 
+/* Sentinel stored in current_step when no step is in progress. */
+#define OBCP_NO_STEP  (~(uint32_t)0U)
+
 typedef struct
 {
    bool loaded;
    asn1SccOBCP_Id id;
    asn1SccOBCP_Code code;
    asn1SccOBCP_Execution_Status status;
+   uint32_t current_step; /* OBCP_NO_STEP when no step is in progress */
 } OBCP_Procedure;
 
 static OBCP_Procedure obcps[OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS] = {};
@@ -95,10 +99,15 @@ static uint32_t workers_count = 0;
 /* ===================================================================
  * Per-channel packet inlet buffer
  * ===================================================================
- * Each channel holds at most one packet at a time.  The sender polls
- * until the slot is free before writing; the receiver polls until a
- * packet is present.  occupied is declared volatile so the compiler
- * does not cache it in a register across poll iterations.
+ * Each channel holds at most one packet at a time. 
+ * TODO: this can be significantly improved if Hal provides
+ * a better semaphore implementation with:
+ * -timeouts
+ * -initialization value (so a true semaphore instead of a mutex)
+ * -release being a defined behaviour in a non-owner thread 
+ *    (true semaphore instead of a mutes)\
+ * Optional signalling via events provided via Hal would be a help.
+ * The current implementation is to demonstrate the working principle.
  * =================================================================== */
 
 typedef struct
@@ -139,6 +148,43 @@ static inline void clear_engine()
 /* ===================================================================
  * Wrapper functions to route obcpengine calls to TASTE RI functions
  * =================================================================== */
+
+/* Returns the obcps[] index for the OBCP running in the calling thread,
+ * or -1 if no OBCP index has been stored in TLS for this thread. */
+static int32_t get_current_obcp_index_for_thread(void)
+{
+   return (int32_t)obcp_engine_tls_get(obcp_thread_local_value_index_obcp_index) - 1;
+}
+
+/* Wrapper for beginstep: record that step `id` has started. */
+static bool wrapper_beginstep(const uint32_t id)
+{
+   const int32_t obcp_idx = get_current_obcp_index_for_thread();
+   if (obcp_idx < 0)
+   {
+      return false;
+   }
+   obcps[obcp_idx].current_step = id;
+   return true;
+}
+
+/* Wrapper for endstep: verify `id` matches the begun step, then clear it.
+ * Returns false (causing a MicroPython RuntimeError) on mismatch. */
+static bool wrapper_endstep(const uint32_t id, const bool success)
+{
+   (void)success; /* success is informational; mismatch is the only hard error */
+   const int32_t obcp_idx = get_current_obcp_index_for_thread();
+   if (obcp_idx < 0)
+   {
+      return false;
+   }
+   if (obcps[obcp_idx].current_step != id)
+   {
+      return false;
+   }
+   obcps[obcp_idx].current_step = OBCP_NO_STEP;
+   return true;
+}
 
 /* Wrapper for send_event */
 static void wrapper_send_event(const uint32_t event_id)
@@ -487,8 +533,8 @@ void obcp_engine_startup(void)
        .obcp_write_bool_parameter = wrapper_write_bool_parameter,
        .obcp_send_event = wrapper_send_event,
        .obcp_write = wrapper_output_message,
-       .obcp_beginstep = NULL, /* Not implemented yet */
-       .obcp_endstep = NULL,   /* Not implemented yet */
+       .obcp_beginstep = wrapper_beginstep,
+       .obcp_endstep = wrapper_endstep,
        .obcp_wait = wrapper_wait,
        .obcp_waituntil = wrapper_waituntil,
        .obcp_gettime = wrapper_get_current_time,
@@ -628,6 +674,7 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
          }
          obcps[id].code.nCount = IN_code->nCount;
          obcps[id].status = OBCP_Execution_Status_inactive;
+         obcps[id].current_step = OBCP_NO_STEP;
          obcps[id].loaded = true;
          ++obcps_count;
          *OUT_success = TRUE;
@@ -732,6 +779,9 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
 
    DEBUG_PRINT("DO WORK Worker[%d] PID %d\n", worker_id, pid);
 
+   /* Store the obcps[] index in TLS (offset by +1 so 0 means "none"). */
+   obcp_engine_tls_set(obcp_thread_local_value_index_obcp_index, (uintptr_t)(idx + 1u));
+
    obcpengine_provide_buffer(workers[worker_id].packet_buffer,
                              OBCP_PACKET_BUFFER_SIZE);
 
@@ -740,6 +790,8 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
        workers[worker_id].heap.bytes,
        OBCP_MICROPYTHON_HEAP_SIZE);
 
+   workers[worker_id].native_thread_handle = 0;
+   obcp_engine_tls_set(obcp_thread_local_value_index_obcp_index, 0u);
    obcps[idx].status = OBCP_Execution_Status_inactive;
 }
 
