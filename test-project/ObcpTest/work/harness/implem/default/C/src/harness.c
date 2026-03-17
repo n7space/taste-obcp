@@ -179,7 +179,12 @@ void harness_PI_send_packet
        * so that the receiving OBCP can pick it up via receivepacket(). */
       printf("Packets test: relaying %d-byte packet on channel %u\n",
              IN_packet->nCount, (unsigned)*IN_channel);
-      harness_RI_receive_packet(IN_channel, IN_packet);
+      asn1SccT_Boolean receive_success = FALSE;
+      while (!receive_success)
+      {
+         // Push the packet untill success
+         harness_RI_receive_packet(IN_channel, IN_packet, &receive_success);
+      }
       return;
    }
 
@@ -639,7 +644,11 @@ void harness_PI_trigger(void)
          env_in.arr[2] = (byte)0xCC;
          env_in.arr[3] = (byte)0xDD;
          env_in.nCount = 4;
-         harness_RI_receive_packet(&ch0, &env_in);
+         asn1SccT_Boolean receive_success = FALSE;
+         while (!receive_success)
+         {
+            harness_RI_receive_packet(&ch0, &env_in, &receive_success);
+         }
          printf("Packets test: injected 4-byte env-input packet on channel 0\n");
 
          if (!load_obcp(&OBCP_PKTRECV)) return;

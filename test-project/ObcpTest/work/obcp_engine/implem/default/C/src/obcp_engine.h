@@ -38,7 +38,7 @@ void obcp_engine_PI_get_obcp_status( const asn1SccOBCP_Id *, asn1SccOBCP_Executi
 void obcp_engine_PI_load_obcp( const asn1SccOBCP_Id *, const asn1SccOBCP_Code *, asn1SccT_Boolean * );
 
 
-void obcp_engine_PI_receive_packet( const asn1SccOBCP_Channel_Id *, const asn1SccOBCP_Packet * );
+void obcp_engine_PI_receive_packet( const asn1SccOBCP_Channel_Id *, const asn1SccOBCP_Packet *, asn1SccT_Boolean * );
 
 
 void obcp_engine_PI_register_worker( void );
@@ -50,7 +50,7 @@ void obcp_engine_PI_release_worker( void );
 void obcp_engine_PI_start_obcp_engine( void );
 
 
-void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *, asn1SccT_Boolean * );
+void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *, const asn1SccOBCP_Step_Id *, asn1SccT_Boolean * );
 
 
 void obcp_engine_PI_stop_obcp_engine( void );

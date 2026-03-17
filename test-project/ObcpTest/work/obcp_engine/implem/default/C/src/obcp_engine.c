@@ -635,24 +635,29 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
       }
    }
 }
-
-void obcp_engine_PI_receive_packet(const asn1SccOBCP_Channel_Id *IN_channel,
-                                   const asn1SccOBCP_Packet *IN_packet)
+void obcp_engine_PI_receive_packet( const asn1SccOBCP_Channel_Id *IN_channel,
+   const asn1SccOBCP_Packet *IN_packet,
+   asn1SccT_Boolean *OUT_success)
 {
    const uint32_t ch_idx = (uint32_t)*IN_channel;
    if (ch_idx >= OBCP_PACKET_CHANNEL_COUNT)
    {
+      *OUT_success = FALSE;
       return;
    }
 
    OBCP_PacketChannel *ch = &packet_channels[ch_idx];
 
-   /* Wait until the previous packet on this channel has been consumed. */
-   while (ch->occupied)
+   /* Do not wait if busy, just return; a busy loop can be implemented
+      on the user-side. Just blocking here would block ALL reception 
+      channels, which is undesired */
+   if (ch->occupied)
    {
-      Hal_SleepNs(PACKET_POLL_INTERVAL_NS);
+      *OUT_success = FALSE;
+      return;
    }
 
+   *OUT_success = TRUE;
    /* Store the incoming packet (1-packet-deep inlet buffer per channel). */
    ch->packet   = *IN_packet;
    ch->occupied = true;
@@ -664,9 +669,9 @@ void obcp_engine_PI_start_obcp_engine(void)
    obcp_engine_RI_initiate_registration();
 }
 
-void obcp_engine_PI_stop_obcp(const asn1SccOBCP_Id *IN_id,
-                              asn1SccT_Boolean *OUT_success)
-
+void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *IN_id,
+   const asn1SccOBCP_Step_Id *IN_step_id,
+   asn1SccT_Boolean *OUT_success)
 {
    // TODO Issue stop to the indicated OBCP and wait until its worker is stopped
 }
