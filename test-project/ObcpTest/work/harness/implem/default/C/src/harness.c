@@ -561,6 +561,76 @@ static bool stop_obcp_at(const Harness_ObcpDef *def,
 }
 
 /* -----------------------------------------------------------------------
+ * Test result table
+ * ----------------------------------------------------------------------- */
+
+typedef enum {
+   TEST_NOT_RUN = 0,
+   TEST_PASS,
+   TEST_FAIL
+} Harness_TestStatus;
+
+typedef struct {
+   const char        *name;
+   Harness_TestStatus status;
+} Harness_TestResult;
+
+typedef enum {
+   T_IO_WRITE        = 0,
+   T_DATAPOOL,
+   T_EVENTS,
+   T_STEP_CONTROL,
+   T_CONCURRENCY,
+   T_GETTIME,
+   T_PKT_ENV_RECV,
+   T_PKT_INTER_OBCP,
+   T_PKT_NONBLOCKING,
+   T_PKT_CANSEND,
+   T_PKT_ENV_SEND,
+   T_ABORT,
+   T_STOP,
+   T_COUNT
+} Harness_TestIndex;
+
+static Harness_TestResult test_results[T_COUNT] = {
+   [T_IO_WRITE]        = { "IO write output",                          TEST_NOT_RUN },
+   [T_DATAPOOL]        = { "Datapool read/write (int/enum/float/bool)", TEST_NOT_RUN },
+   [T_EVENTS]          = { "Events sequence",                          TEST_NOT_RUN },
+   [T_STEP_CONTROL]    = { "Step control (beginstep/endstep)",         TEST_NOT_RUN },
+   [T_CONCURRENCY]     = { "Concurrent OBCP execution",                TEST_NOT_RUN },
+   [T_GETTIME]         = { "Gettime accuracy",                         TEST_NOT_RUN },
+   [T_PKT_ENV_RECV]    = { "Packet: Env->OBCP receive (timed)",        TEST_NOT_RUN },
+   [T_PKT_INTER_OBCP]  = { "Packet: OBCP-to-OBCP exchange",           TEST_NOT_RUN },
+   [T_PKT_NONBLOCKING] = { "Packet: non-blocking + availability",      TEST_NOT_RUN },
+   [T_PKT_CANSEND]     = { "Packet: cansendpacket",                    TEST_NOT_RUN },
+   [T_PKT_ENV_SEND]    = { "Packet: OBCP->Env send",                   TEST_NOT_RUN },
+   [T_ABORT]           = { "Abort OBCP (terminates infinite loop)",    TEST_NOT_RUN },
+   [T_STOP]            = { "Stop OBCP at endstep boundary",            TEST_NOT_RUN },
+};
+
+static void test_record(Harness_TestIndex idx, bool passed)
+{
+   test_results[idx].status = passed ? TEST_PASS : TEST_FAIL;
+}
+
+static void report_final_results(void)
+{
+   static const char * const status_str[] = { "NOT RUN", "PASS   ", "FAIL   " };
+   bool all_pass = true;
+   printf("\n========================================\n");
+   printf(" Test Results\n");
+   printf("========================================\n");
+   for (int i = 0; i < T_COUNT; i++) {
+      const Harness_TestStatus s = test_results[i].status;
+      if (s != TEST_PASS) { all_pass = false; }
+      printf("  [%s] %s\n", status_str[s], test_results[i].name);
+   }
+   printf("----------------------------------------\n");
+   printf("  Overall: %s\n", all_pass ? "PASS" : "FAIL");
+   printf("========================================\n");
+}
+
+/* -----------------------------------------------------------------------
  * Trigger state machine
  * ----------------------------------------------------------------------- */
 
@@ -613,6 +683,7 @@ void harness_PI_trigger(void)
 
          if (sio == OBCP_Execution_Status_inactive) {
             io_write_test_active = false;
+            test_record(T_IO_WRITE, io_test_msg_index == IO_TEST_EXPECTED_COUNT);
             if (io_test_msg_index != IO_TEST_EXPECTED_COUNT) {
                printf("IO test ERROR: expected %zu messages, received %zu\n",
                       IO_TEST_EXPECTED_COUNT, io_test_msg_index);
@@ -637,6 +708,7 @@ void harness_PI_trigger(void)
          const asn1SccOBCP_Execution_Status sdp = get_status(&OBCP_DPTEST);
 
          if (sdp == OBCP_Execution_Status_inactive) {
+            test_record(T_DATAPOOL, true);
             printf("Datapool tests finished\n");
             unload_obcp(&OBCP_DPTEST);
 
@@ -662,9 +734,10 @@ void harness_PI_trigger(void)
          if (sev == OBCP_Execution_Status_inactive) {
             events_test_active = false;
 
-            if (!events_test_all_ok ||
-                events_test_received_count != EVENTS_TEST_EXPECTED_COUNT)
-            {
+            const bool events_ok = events_test_all_ok &&
+                                   events_test_received_count == EVENTS_TEST_EXPECTED_COUNT;
+            test_record(T_EVENTS, events_ok);
+            if (!events_ok) {
                printf("Events test FAILED: expected %zu events, received %zu%s\n",
                       EVENTS_TEST_EXPECTED_COUNT,
                       events_test_received_count,
@@ -735,7 +808,9 @@ void harness_PI_trigger(void)
             harness_PI_get_parameter_value(&done_id, &int_type, &v);
             const bool steps_done = (v.u.int_value == 1);
 
-            if (steps_done && last_step == STEPTEST_LAST_STEP) {
+            const bool step_ok = steps_done && last_step == STEPTEST_LAST_STEP;
+            test_record(T_STEP_CONTROL, step_ok);
+            if (step_ok) {
                printf("Step test PASSED: all %d steps completed, "
                       "step %d hold-and-release verified\n",
                       STEPTEST_LAST_STEP, STEPTEST_BLOCKING_STEP);
@@ -791,6 +866,7 @@ void harness_PI_trigger(void)
          if (s2 == OBCP_Execution_Status_inactive &&
              s3 == OBCP_Execution_Status_inactive)
          {
+            test_record(T_CONCURRENCY, true);
             printf("Concurrency tests finished\n");
             unload_obcp(&OBCP_TEST2);
             unload_obcp(&OBCP_TEST3);
@@ -825,6 +901,7 @@ void harness_PI_trigger(void)
             const int32_t elapsed_ms = elapsed_val.u.int_value;
             const int32_t passed     = passed_val.u.int_value;
 
+            test_record(T_GETTIME, passed != 0);
             if (passed) {
                printf("Gettime test PASSED: elapsed=%d ms "
                       "(nominal=%d ms, tolerance=\u00b1%d ms)\n",
@@ -919,6 +996,11 @@ void harness_PI_trigger(void)
                }
             }
 
+            test_record(T_PKT_ENV_RECV,    env_recv_ok);
+            test_record(T_PKT_INTER_OBCP,  inter_ok);
+            test_record(T_PKT_NONBLOCKING, nonblock_ok);
+            test_record(T_PKT_CANSEND,     cansend_ok);
+            test_record(T_PKT_ENV_SEND,    env_out_ok);
             printf("Packets test results:\n");
             printf("  Env\u2192OBCP receive  (ch0, 4 B, 500 ms timeout): %s\n",
                    env_recv_ok ? "PASSED" : "FAILED");
@@ -965,6 +1047,7 @@ void harness_PI_trigger(void)
       case PHASE_ABORT_TEST_WAIT: {
          const asn1SccOBCP_Execution_Status sa = get_status(&OBCP_ABORTTEST);
          if (sa == OBCP_Execution_Status_inactive) {
+            test_record(T_ABORT, true);
             printf("Abort test PASSED: OBCP transitioned to inactive after abort\n");
             unload_obcp(&OBCP_ABORTTEST);
 
@@ -1047,6 +1130,7 @@ void harness_PI_trigger(void)
                }
             }
 
+            test_record(T_STOP, ok);
             if (ok) {
                printf("Stop test PASSED: OBCP stopped at endstep(%d); "
                       "steps 1-%d body executed, steps %d+ not reached\n",
@@ -1054,6 +1138,7 @@ void harness_PI_trigger(void)
                       STOPTEST_TARGET_STEP + 1);
             }
             unload_obcp(&OBCP_STOPTEST);
+            report_final_results();
             printf("All tests finished \u2014 exiting\n");
             kill(getpid(), SIGTERM);
          }
