@@ -32,6 +32,8 @@ extern bool     Hal_SemaphoreRelease(int32_t id);
 
 /* Include obcpengine header from n7s-obcp */
 #include "obcpengine.h"
+#include "obj.h"
+#include "runtime.h"
 
 #ifndef OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS
 #define OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS (8)
@@ -71,7 +73,8 @@ typedef struct
    asn1SccOBCP_Id id;
    asn1SccOBCP_Code code;
    asn1SccOBCP_Execution_Status status;
-   uint32_t current_step; /* OBCP_NO_STEP when no step is in progress */
+   uint32_t current_step;   /* OBCP_NO_STEP when no step is in progress */
+   bool     abort_requested; /* set to true by PI_abort_obcp while active */
 } OBCP_Procedure;
 
 static OBCP_Procedure obcps[OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS] = {};
@@ -156,9 +159,21 @@ static int32_t get_current_obcp_index_for_thread(void)
    return (int32_t)obcp_engine_tls_get(obcp_thread_local_value_index_obcp_index) - 1;
 }
 
+/* Raise a MicroPython exception if the current OBCP has been aborted.
+ * Called at the entry of every user-facing wrapper. */
+static void check_abort(void)
+{
+   const int32_t obcp_idx = get_current_obcp_index_for_thread();
+   if (obcp_idx >= 0 && obcps[obcp_idx].abort_requested)
+   {
+      mp_raise_msg(&mp_type_Exception, MP_ERROR_TEXT("OBCP aborted"));
+   }
+}
+
 /* Wrapper for beginstep: record that step `id` has started. */
 static bool wrapper_beginstep(const uint32_t id)
 {
+   check_abort();
    const int32_t obcp_idx = get_current_obcp_index_for_thread();
    if (obcp_idx < 0)
    {
@@ -172,6 +187,7 @@ static bool wrapper_beginstep(const uint32_t id)
  * Returns false (causing a MicroPython RuntimeError) on mismatch. */
 static bool wrapper_endstep(const uint32_t id, const bool success)
 {
+   check_abort();
    (void)success; /* success is informational; mismatch is the only hard error */
    const int32_t obcp_idx = get_current_obcp_index_for_thread();
    if (obcp_idx < 0)
@@ -189,6 +205,7 @@ static bool wrapper_endstep(const uint32_t id, const bool success)
 /* Wrapper for send_event */
 static void wrapper_send_event(const uint32_t event_id)
 {
+   check_abort();
    asn1SccOBCP_Event_Id id = event_id;
    obcp_engine_RI_send_event(&id);
 }
@@ -196,6 +213,7 @@ static void wrapper_send_event(const uint32_t event_id)
 /* Wrapper for output_message */
 static bool wrapper_output_message(const char *text, size_t length)
 {
+   check_abort();
    asn1SccOBCP_Text msg;
    /* Ensure we don't overflow the buffer (max 32 chars + null terminator) */
    size_t copy_len = (length < 32) ? length : 32;
@@ -208,6 +226,7 @@ static bool wrapper_output_message(const char *text, size_t length)
 /* Wrapper for get_current_time */
 static bool wrapper_get_current_time(uint32_t *seconds, uint32_t *milliseconds)
 {
+   check_abort();
    asn1SccT_Int32 sec, msec;
    obcp_engine_RI_get_current_time(&sec, &msec);
    *seconds = (uint32_t)sec;
@@ -218,12 +237,14 @@ static bool wrapper_get_current_time(uint32_t *seconds, uint32_t *milliseconds)
 /* Wrapper for wait (relative delay in milliseconds) */
 static bool wrapper_wait(const uint32_t milliseconds)
 {
+   check_abort();
    return Hal_SleepNs((uint64_t)milliseconds * NS_PER_MS);
 }
 
 /* Wrapper for waituntil (absolute time in seconds + milliseconds) */
 static bool wrapper_waituntil(const uint32_t target_seconds, const uint32_t target_milliseconds)
 {
+   check_abort();
    const uint64_t target_ns = ((uint64_t)target_seconds * MS_PER_SECOND + target_milliseconds) * NS_PER_MS;
    const uint64_t now_ns    = Hal_GetElapsedTimeInNs();
    if (target_ns <= now_ns)
@@ -236,6 +257,7 @@ static bool wrapper_waituntil(const uint32_t target_seconds, const uint32_t targ
 /* Wrapper for read_int_parameter */
 static bool wrapper_read_int_parameter(const uint32_t id, int32_t *value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_integer_type;
    asn1SccOBCP_Parameter_Value param_value;
@@ -253,6 +275,7 @@ static bool wrapper_read_int_parameter(const uint32_t id, int32_t *value)
 /* Wrapper for write_int_parameter */
 static bool wrapper_write_int_parameter(const uint32_t id, const int32_t value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Value param_value;
    param_value.kind = OBCP_Parameter_Value_int_value_PRESENT;
@@ -266,6 +289,7 @@ static bool wrapper_write_int_parameter(const uint32_t id, const int32_t value)
 /* Wrapper for read_enum_parameter */
 static bool wrapper_read_enum_parameter(const uint32_t id, int32_t *value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_enumerated_type;
    asn1SccOBCP_Parameter_Value param_value;
@@ -283,6 +307,7 @@ static bool wrapper_read_enum_parameter(const uint32_t id, int32_t *value)
 /* Wrapper for write_enum_parameter */
 static bool wrapper_write_enum_parameter(const uint32_t id, const int32_t value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Value param_value;
    param_value.kind = OBCP_Parameter_Value_enum_value_PRESENT;
@@ -295,6 +320,7 @@ static bool wrapper_write_enum_parameter(const uint32_t id, const int32_t value)
 /* Wrapper for read_float_parameter */
 static bool wrapper_read_float_parameter(const uint32_t id, float *value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_float_type;
    asn1SccOBCP_Parameter_Value param_value;
@@ -312,6 +338,7 @@ static bool wrapper_read_float_parameter(const uint32_t id, float *value)
 /* Wrapper for write_float_parameter */
 static bool wrapper_write_float_parameter(const uint32_t id, const float value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Value param_value;
    param_value.kind = OBCP_Parameter_Value_float_value_PRESENT;
@@ -324,6 +351,7 @@ static bool wrapper_write_float_parameter(const uint32_t id, const float value)
 /* Wrapper for read_bool_parameter */
 static bool wrapper_read_bool_parameter(const uint32_t id, bool *value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Type param_type = OBCP_Parameter_Type_boolean_type;
    asn1SccOBCP_Parameter_Value param_value;
@@ -341,6 +369,7 @@ static bool wrapper_read_bool_parameter(const uint32_t id, bool *value)
 /* Wrapper for write_bool_parameter */
 static bool wrapper_write_bool_parameter(const uint32_t id, const bool value)
 {
+   check_abort();
    asn1SccOBCP_Parameter_Id param_id = id;
    asn1SccOBCP_Parameter_Value param_value;
    param_value.kind = OBCP_Parameter_Value_bool_value_PRESENT;
@@ -357,6 +386,7 @@ static bool wrapper_write_bool_parameter(const uint32_t id, const bool value)
 /* Returns true when a packet is buffered on the given channel. */
 static bool wrapper_is_packet_available(const uint32_t channel)
 {
+   check_abort();
    if (channel >= OBCP_PACKET_CHANNEL_COUNT)
    {
       return false;
@@ -368,6 +398,7 @@ static bool wrapper_is_packet_available(const uint32_t channel)
  * or false when none do. */
 static bool wrapper_get_channel_with_packet_available(uint32_t *channel)
 {
+   check_abort();
    for (uint32_t i = 0; i < OBCP_PACKET_CHANNEL_COUNT; ++i)
    {
       if (packet_channels[i].occupied)
@@ -383,6 +414,7 @@ static bool wrapper_get_channel_with_packet_available(uint32_t *channel)
  * so a valid channel can always accept a send request. */
 static bool wrapper_can_send_packet(const uint32_t channel)
 {
+   check_abort();
    return channel < OBCP_PACKET_CHANNEL_COUNT;
 }
 
@@ -391,6 +423,7 @@ static bool wrapper_send_packet(const uint32_t channel,
                                 const uint32_t length,
                                 const char *const data)
 {
+   check_abort();
    asn1SccOBCP_Channel_Id ch_id  = (asn1SccOBCP_Channel_Id)channel;
    asn1SccOBCP_Packet     packet;
    asn1SccT_Boolean       success = FALSE;
@@ -422,6 +455,7 @@ static bool wrapper_receive_packet(const uint32_t channel,
                                    char *data,
                                    uint32_t timeout_milliseconds)
 {
+   check_abort();
    if (channel >= OBCP_PACKET_CHANNEL_COUNT)
    {
       return false;
@@ -442,6 +476,7 @@ static bool wrapper_receive_packet(const uint32_t channel,
       /* Blocking wait: poll until the sender deposits a packet. */
       while (!ch->occupied)
       {
+         check_abort();
          Hal_SleepNs(PACKET_POLL_INTERVAL_NS);
       }
    }
@@ -454,6 +489,7 @@ static bool wrapper_receive_packet(const uint32_t channel,
 
       while (!ch->occupied)
       {
+         check_abort();
          if (Hal_GetElapsedTimeInNs() >= deadline_ns)
          {
             return false;
@@ -552,7 +588,17 @@ void obcp_engine_PI_abort_obcp(const asn1SccOBCP_Id *IN_id,
                                asn1SccT_Boolean *OUT_success)
 
 {
-   // TODO
+   *OUT_success = FALSE;
+   const int32_t index = getObcpIndex(*IN_id);
+   if (index < 0)
+   {
+      return;
+   }
+   if (obcps[index].status == OBCP_Execution_Status_active_and_running)
+   {
+      obcps[index].abort_requested = true;
+      *OUT_success = TRUE;
+   }
 }
 
 extern void obcp_engine_RI_activate_worker_To_PID(asn1SccPID dest_pid, const asn1SccT_Int32 *IN_obcp_index);
@@ -677,6 +723,7 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
          obcps[id].code.nCount = IN_code->nCount;
          obcps[id].status = OBCP_Execution_Status_inactive;
          obcps[id].current_step = OBCP_NO_STEP;
+         obcps[id].abort_requested = false;
          obcps[id].loaded = true;
          ++obcps_count;
          *OUT_success = TRUE;
@@ -794,6 +841,7 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
 
    workers[worker_id].native_thread_handle = 0;
    obcp_engine_tls_set(obcp_thread_local_value_index_obcp_index, 0u);
+   obcps[idx].abort_requested = false;
    obcps[idx].status = OBCP_Execution_Status_inactive;
 }
 
