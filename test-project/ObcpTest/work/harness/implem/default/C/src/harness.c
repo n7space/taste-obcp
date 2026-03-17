@@ -37,7 +37,7 @@ void harness_PI_get_current_time
  * In-memory parameter store (supports up to PARAM_STORE_SIZE parameters)
  * ----------------------------------------------------------------------- */
 
-#define PARAM_STORE_SIZE 16
+#define PARAM_STORE_SIZE 32
 
 typedef struct {
    asn1SccOBCP_Parameter_Id    id;
@@ -162,6 +162,17 @@ void harness_PI_send_event( const asn1SccOBCP_Event_Id * event_id)
 /* Expected last step number and total step count */
 #define STEPTEST_BLOCKING_STEP         4
 #define STEPTEST_LAST_STEP             6
+
+/* Datapool parameter IDs used by the abort/stop tests */
+#define STOPTEST_UNBLOCK_PARAM_ID      50u /* harness sets to 1 to unblock step 2 */
+#define STOPTEST_STEP1_PARAM_ID        40u /* OBCP writes 1 in step 1 body */
+#define STOPTEST_STEP2_PARAM_ID        41u /* OBCP writes 1 in step 2 body */
+#define STOPTEST_STEP3_PARAM_ID        42u /* OBCP writes 1 in step 3 body (stop fires at endstep) */
+#define STOPTEST_STEP4_PARAM_ID        43u /* must remain 0 — not reached after stop */
+#define STOPTEST_STEP5_PARAM_ID        44u /* must remain 0 — not reached after stop */
+#define STOPTEST_DONE_PARAM_ID         45u /* must remain 0 — not reached after stop */
+#define STOPTEST_BLOCKING_STEP         2   /* step that blocks until harness unblocks */
+#define STOPTEST_TARGET_STEP           3   /* stop is requested at this step */
 
 /* Expected content of the 16-byte packet sent from OBCP_PKTSEND to env */
 static const unsigned char pkttest_expected_env_output[16] = {
@@ -421,6 +432,50 @@ static const Harness_ObcpDef OBCP_STEPTEST = {
       "obcpdatapool.writeintparameter(32, 1)\n"
 };
 
+/* Abort test OBCP: runs an infinite loop and never terminates on its own.
+ * The harness polls until active_and_running, calls abort_obcp, then verifies
+ * that the OBCP transitions back to inactive.
+ */
+static const Harness_ObcpDef OBCP_ABORTTEST = {
+   .id  = {'A','B','R','T','T'},
+   .src =
+      "import obcptime\n"
+      "while True:\n"
+      "    obcptime.wait(10)\n"
+};
+
+/* Stop test OBCP: five steps with datapool writes; step 2 blocks until the
+ * harness sets STOPTEST_UNBLOCK_PARAM_ID (50) to 1.  The harness requests a
+ * stop at step 3 while the OBCP is blocked in step 2.  After unblocking, the
+ * OBCP finishes step 2, executes the body of step 3 (writing param 42), then
+ * endstep(3) triggers the stop.  Steps 4-5 and the done flag must not run.
+ */
+static const Harness_ObcpDef OBCP_STOPTEST = {
+   .id  = {'S','T','O','P','T'},
+   .src =
+      "import obcpcontrol\n"
+      "import obcpdatapool\n"
+      "import obcptime\n"
+      "obcpcontrol.beginstep(1)\n"
+      "obcpdatapool.writeintparameter(40, 1)\n"
+      "obcpcontrol.endstep(1, True)\n"
+      "obcpcontrol.beginstep(2)\n"
+      "obcpdatapool.writeintparameter(41, 1)\n"
+      "while obcpdatapool.readintparameter(50) == 0:\n"
+      "    obcptime.wait(10)\n"
+      "obcpcontrol.endstep(2, True)\n"
+      "obcpcontrol.beginstep(3)\n"
+      "obcpdatapool.writeintparameter(42, 1)\n"
+      "obcpcontrol.endstep(3, True)\n"
+      "obcpcontrol.beginstep(4)\n"
+      "obcpdatapool.writeintparameter(43, 1)\n"
+      "obcpcontrol.endstep(4, True)\n"
+      "obcpcontrol.beginstep(5)\n"
+      "obcpdatapool.writeintparameter(44, 1)\n"
+      "obcpcontrol.endstep(5, True)\n"
+      "obcpdatapool.writeintparameter(45, 1)\n"
+};
+
 /* -----------------------------------------------------------------------
  * Helpers
  * ----------------------------------------------------------------------- */
@@ -483,6 +538,28 @@ static void unload_obcp(const Harness_ObcpDef *def)
    }
 }
 
+static bool abort_obcp(const Harness_ObcpDef *def)
+{
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_abort_obcp(&def->id, &ok);
+   if (!ok) {
+      printf("Could not abort OBCP %.5s\n", def->id);
+   }
+   return (bool)ok;
+}
+
+static bool stop_obcp_at(const Harness_ObcpDef *def,
+                          asn1SccOBCP_Step_Id step_id)
+{
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_stop_obcp(&def->id, &step_id, &ok);
+   if (!ok) {
+      printf("Could not stop OBCP %.5s at step %u\n",
+             def->id, (unsigned)step_id);
+   }
+   return (bool)ok;
+}
+
 /* -----------------------------------------------------------------------
  * Trigger state machine
  * ----------------------------------------------------------------------- */
@@ -499,6 +576,10 @@ typedef enum {
    PHASE_GETTIME_TEST,
    PHASE_PACKETS_INIT,
    PHASE_PACKETS_RUNNING,
+   PHASE_ABORT_TEST_RUNNING,
+   PHASE_ABORT_TEST_WAIT,
+   PHASE_STOP_TEST_RUNNING,
+   PHASE_STOP_TEST_WAIT,
 } Harness_Phase;
 
 void harness_PI_trigger(void)
@@ -855,6 +936,124 @@ void harness_PI_trigger(void)
             printf("Packets test overall: %s\n", all_ok ? "PASSED" : "FAILED");
             unload_obcp(&OBCP_PKTRECV);
             unload_obcp(&OBCP_PKTSEND);
+
+            if (!load_obcp(&OBCP_ABORTTEST)) return;
+            if (!activate_obcp(&OBCP_ABORTTEST)) return;
+            printf("Abort test OBCP activated (infinite loop)\n");
+            phase = PHASE_ABORT_TEST_RUNNING;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Poll until the OBCP is actively running, then send abort.
+       * ----------------------------------------------------------------- */
+      case PHASE_ABORT_TEST_RUNNING: {
+         const asn1SccOBCP_Execution_Status sa = get_status(&OBCP_ABORTTEST);
+         if (sa == OBCP_Execution_Status_active_and_running) {
+            printf("Abort test: OBCP is active_and_running \u2014 sending abort\n");
+            abort_obcp(&OBCP_ABORTTEST);
+            phase = PHASE_ABORT_TEST_WAIT;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for the aborted OBCP to reach inactive, then launch the
+       * stop test.
+       * ----------------------------------------------------------------- */
+      case PHASE_ABORT_TEST_WAIT: {
+         const asn1SccOBCP_Execution_Status sa = get_status(&OBCP_ABORTTEST);
+         if (sa == OBCP_Execution_Status_inactive) {
+            printf("Abort test PASSED: OBCP transitioned to inactive after abort\n");
+            unload_obcp(&OBCP_ABORTTEST);
+
+            /* Initialise stop test datapool entries to zero */
+            {
+               asn1SccOBCP_Parameter_Value zero_val;
+               zero_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
+               zero_val.u.int_value = 0;
+               asn1SccOBCP_Parameter_Id pid;
+               for (pid = STOPTEST_STEP1_PARAM_ID;
+                    pid <= STOPTEST_DONE_PARAM_ID; ++pid) {
+                  harness_PI_set_parameter_value(&pid, &zero_val);
+               }
+               const asn1SccOBCP_Parameter_Id unblock_id = STOPTEST_UNBLOCK_PARAM_ID;
+               harness_PI_set_parameter_value(&unblock_id, &zero_val);
+            }
+
+            if (!load_obcp(&OBCP_STOPTEST)) return;
+            if (!activate_obcp(&OBCP_STOPTEST)) return;
+            printf("Stop test OBCP activated\n");
+            phase = PHASE_STOP_TEST_RUNNING;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait until the OBCP is blocked in step 2; request stop at step 3
+       * then unblock so it advances to step 3 and the stop fires there.
+       * ----------------------------------------------------------------- */
+      case PHASE_STOP_TEST_RUNNING: {
+         const asn1SccOBCP_Step_Id current_step = get_current_step(&OBCP_STOPTEST);
+         if (current_step == STOPTEST_BLOCKING_STEP) {
+            printf("Stop test: OBCP is in step %u \u2014 requesting stop at step %u\n",
+                   (unsigned)current_step, (unsigned)STOPTEST_TARGET_STEP);
+            stop_obcp_at(&OBCP_STOPTEST, STOPTEST_TARGET_STEP);
+            const asn1SccOBCP_Parameter_Id unblock_id = STOPTEST_UNBLOCK_PARAM_ID;
+            asn1SccOBCP_Parameter_Value one_val;
+            one_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
+            one_val.u.int_value = 1;
+            harness_PI_set_parameter_value(&unblock_id, &one_val);
+            phase = PHASE_STOP_TEST_WAIT;
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for the stopped OBCP to reach inactive, then verify that
+       * steps 1-3 ran (params 40-42 == 1) and steps 4-5 did not
+       * (params 43-45 == 0).
+       * ----------------------------------------------------------------- */
+      case PHASE_STOP_TEST_WAIT: {
+         const asn1SccOBCP_Execution_Status ss = get_status(&OBCP_STOPTEST);
+         if (ss == OBCP_Execution_Status_inactive) {
+            const asn1SccOBCP_Parameter_Type int_type = OBCP_Parameter_Type_integer_type;
+            asn1SccOBCP_Parameter_Value v;
+            bool ok = true;
+            asn1SccOBCP_Parameter_Id pid;
+
+            /* Steps 1-3 body must have run (params 40-42 == 1) */
+            for (pid = STOPTEST_STEP1_PARAM_ID;
+                 pid <= STOPTEST_STEP3_PARAM_ID; ++pid) {
+               harness_PI_get_parameter_value(&pid, &int_type, &v);
+               if (v.u.int_value != 1) {
+                  printf("Stop test FAILED: param %u expected 1, got %d "
+                         "(step body before/at stop not executed)\n",
+                         (unsigned)pid, (int)v.u.int_value);
+                  ok = false;
+               }
+            }
+
+            /* Steps 4-5 and done flag must NOT have run (params 43-45 == 0) */
+            for (pid = STOPTEST_STEP4_PARAM_ID;
+                 pid <= STOPTEST_DONE_PARAM_ID; ++pid) {
+               harness_PI_get_parameter_value(&pid, &int_type, &v);
+               if (v.u.int_value != 0) {
+                  printf("Stop test FAILED: param %u expected 0, got %d "
+                         "(execution continued past stop step)\n",
+                         (unsigned)pid, (int)v.u.int_value);
+                  ok = false;
+               }
+            }
+
+            if (ok) {
+               printf("Stop test PASSED: OBCP stopped at endstep(%d); "
+                      "steps 1-%d body executed, steps %d+ not reached\n",
+                      STOPTEST_TARGET_STEP, STOPTEST_TARGET_STEP,
+                      STOPTEST_TARGET_STEP + 1);
+            }
+            unload_obcp(&OBCP_STOPTEST);
             printf("All tests finished \u2014 exiting\n");
             kill(getpid(), SIGTERM);
          }
