@@ -73,8 +73,10 @@ typedef struct
    asn1SccOBCP_Id id;
    asn1SccOBCP_Code code;
    asn1SccOBCP_Execution_Status status;
-   uint32_t current_step;   /* OBCP_NO_STEP when no step is in progress */
+   uint32_t current_step;    /* OBCP_NO_STEP when no step is in progress */
    bool     abort_requested; /* set to true by PI_abort_obcp while active */
+   bool     stop_requested;  /* set to true by PI_stop_obcp while active */
+   asn1SccOBCP_Step_Id stop_at_step; /* 0 = stop at first endstep, else stop at matching id */
 } OBCP_Procedure;
 
 static OBCP_Procedure obcps[OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS] = {};
@@ -199,6 +201,11 @@ static bool wrapper_endstep(const uint32_t id, const bool success)
       return false;
    }
    obcps[obcp_idx].current_step = OBCP_NO_STEP;
+   if (obcps[obcp_idx].stop_requested &&
+       (obcps[obcp_idx].stop_at_step == 0 || obcps[obcp_idx].stop_at_step == id))
+   {
+      mp_raise_msg(&mp_type_Exception, MP_ERROR_TEXT("OBCP stopped"));
+   }
    return true;
 }
 
@@ -724,6 +731,8 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
          obcps[id].status = OBCP_Execution_Status_inactive;
          obcps[id].current_step = OBCP_NO_STEP;
          obcps[id].abort_requested = false;
+         obcps[id].stop_requested  = false;
+         obcps[id].stop_at_step    = 0;
          obcps[id].loaded = true;
          ++obcps_count;
          *OUT_success = TRUE;
@@ -769,7 +778,18 @@ void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *IN_id,
    const asn1SccOBCP_Step_Id *IN_step_id,
    asn1SccT_Boolean *OUT_success)
 {
-   // TODO Issue stop to the indicated OBCP and wait until its worker is stopped
+   *OUT_success = FALSE;
+   const int32_t index = getObcpIndex(*IN_id);
+   if (index < 0)
+   {
+      return;
+   }
+   if (obcps[index].status == OBCP_Execution_Status_active_and_running)
+   {
+      obcps[index].stop_requested = true;
+      obcps[index].stop_at_step   = *IN_step_id;
+      *OUT_success = TRUE;
+   }
 }
 
 void obcp_engine_PI_stop_obcp_engine(void)
@@ -842,6 +862,8 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
    workers[worker_id].native_thread_handle = 0;
    obcp_engine_tls_set(obcp_thread_local_value_index_obcp_index, 0u);
    obcps[idx].abort_requested = false;
+   obcps[idx].stop_requested  = false;
+   obcps[idx].stop_at_step    = 0;
    obcps[idx].status = OBCP_Execution_Status_inactive;
 }
 
