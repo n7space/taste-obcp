@@ -1738,7 +1738,9 @@ void harness_PI_trigger(void)
             unload_precompiled_obcp(&OBCP_PRECOMPILED_TEST);
             test_record(T_LOAD_LIMIT, run_load_limit_test());
             report_final_results();
-            printf("All tests finished — exiting\n");
+            printf("All tests finished — stopping the engine\n");
+            harness_RI_stop_obcp_engine();
+            printf("Engine stooped\n");
             kill(getpid(), SIGTERM);
          }
          break;

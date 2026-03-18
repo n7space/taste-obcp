@@ -10,13 +10,7 @@
 #include "obcp_engine.h"
 #include "obcp_engine_thread_local.h"
 #include <string.h>
-
-/* Forward declarations for HAL functions (provided by the TASTE runtime). */
-extern bool     Hal_SleepNs(uint64_t time_ns);
-extern uint64_t Hal_GetElapsedTimeInNs(void);
-extern int32_t  Hal_SemaphoreCreate(void);
-extern bool     Hal_SemaphoreObtain(int32_t id);
-extern bool     Hal_SemaphoreRelease(int32_t id);
+#include <Hal.h>
 
 #define MS_PER_SECOND     (1000U)
 #define NS_PER_MS         (1000000ULL)
@@ -804,7 +798,57 @@ void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *IN_id,
 
 void obcp_engine_PI_stop_obcp_engine(void)
 {
-    // TODO Issue abort to all active OBCPS and wait untill all workers are freed
+   bool waiting_for_obcps = false;
+
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
+   {
+      if (!obcps[i].loaded)
+      {
+         continue;
+      }
+
+      if (obcps[i].status == OBCP_Execution_Status_active_and_running)
+      {
+         obcps[i].abort_requested = true;
+      }
+   }
+
+   do
+   {
+      waiting_for_obcps = false;
+
+      for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
+      {
+         if (obcps[i].loaded && obcps[i].status != OBCP_Execution_Status_inactive)
+         {
+            waiting_for_obcps = true;
+            break;
+         }
+      }
+
+      if (waiting_for_obcps)
+      {
+         Hal_SleepNs(PACKET_POLL_INTERVAL_NS);
+      }
+   } while (waiting_for_obcps);
+
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
+   {
+      if (!obcps[i].loaded)
+      {
+         continue;
+      }
+
+      obcps[i].loaded = false;
+      obcps[i].code.nCount = 0;
+      obcps[i].status = OBCP_Execution_Status_inactive;
+      obcps[i].current_step = OBCP_NO_STEP;
+      obcps[i].abort_requested = false;
+      obcps[i].stop_requested = false;
+      obcps[i].stop_at_step = 0;
+   }
+
+   clear_engine();
 }
 
 void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
