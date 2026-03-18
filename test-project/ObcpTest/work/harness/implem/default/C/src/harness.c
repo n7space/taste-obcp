@@ -311,8 +311,10 @@ static const Harness_ObcpDef OBCP_IOTEST = {
 
 /* Datapool test OBCP: exercises write and read of int, enum, float and bool
  * parameters using the MicroPython obcpdatapool module.  Parameter IDs:
- *   1 = integer   2 = enum   3 = float   4 = bool
+ *   1 = integer   2 = enum   3 = float   4 = bool   5 = success flag
  */
+#define DPTEST_SUCCESS_PARAM_ID  5
+
 static const Harness_ObcpDef OBCP_DPTEST = {
    .id  = {'D','P','T','S','T'},
    .src =
@@ -333,6 +335,7 @@ static const Harness_ObcpDef OBCP_DPTEST = {
       "v = obcpdatapool.readboolparameter(4)\n"
       "if not v: raise RuntimeError('bool fail')\n"
       "obcpio.write('DP bool OK: ' + str(v) + '\\n')\n"
+      "obcpdatapool.writeintparameter(5, 1)\n"
 };
 
 /* Events test OBCP: sends a known sequence of events via obcpevents.sendevent.
@@ -699,20 +702,12 @@ static Harness_Phase harness_phase = PHASE_INIT;
 
 static Harness_Phase harness_get_phase(void)
 {
-   Harness_Phase phase;
-
-   harness_lock_state();
-   phase = harness_phase;
-   harness_unlock_state();
-
-   return phase;
+   return harness_phase;
 }
 
 static void harness_set_phase(Harness_Phase phase)
 {
-   harness_lock_state();
    harness_phase = phase;
-   harness_unlock_state();
 }
 
 void harness_PI_trigger(void)
@@ -762,6 +757,15 @@ void harness_PI_trigger(void)
                       IO_TEST_EXPECTED_COUNT);
             }
             unload_obcp(&OBCP_IOTEST);
+
+            {
+               const asn1SccOBCP_Parameter_Id success_id = DPTEST_SUCCESS_PARAM_ID;
+               asn1SccOBCP_Parameter_Value zero_val;
+               zero_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
+               zero_val.u.int_value = 0;
+               harness_PI_set_parameter_value(&success_id, &zero_val);
+            }
+
             if (!load_obcp(&OBCP_DPTEST)) return;
             if (!activate_obcp(&OBCP_DPTEST)) return;
 
@@ -779,8 +783,25 @@ void harness_PI_trigger(void)
          const asn1SccOBCP_Execution_Status sdp = get_status(&OBCP_DPTEST);
 
          if (sdp == OBCP_Execution_Status_inactive) {
-            test_record(T_DATAPOOL, true);
-            printf("Datapool tests finished\n");
+            const asn1SccOBCP_Parameter_Id success_id = DPTEST_SUCCESS_PARAM_ID;
+            const asn1SccOBCP_Parameter_Type int_type = OBCP_Parameter_Type_integer_type;
+            asn1SccOBCP_Parameter_Value success_val;
+
+            harness_PI_get_parameter_value(&success_id, &int_type, &success_val);
+
+            const bool datapool_ok =
+               success_val.kind == OBCP_Parameter_Value_int_value_PRESENT &&
+               success_val.u.int_value == 1;
+
+            test_record(T_DATAPOOL, datapool_ok);
+            if (datapool_ok) {
+               printf("Datapool tests finished\n");
+            } else {
+               printf("Datapool test FAILED: success flag param %u value=%d\n",
+                      (unsigned)success_id,
+                      success_val.kind == OBCP_Parameter_Value_int_value_PRESENT ?
+                         (int)success_val.u.int_value : -1);
+            }
             unload_obcp(&OBCP_DPTEST);
 
             if (!load_obcp(&OBCP_EVTEST)) return;
