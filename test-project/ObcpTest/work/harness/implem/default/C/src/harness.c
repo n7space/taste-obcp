@@ -727,7 +727,7 @@ static bool run_load_limit_test(void)
    // Main makefile should declare OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS as 12
    if (loaded_count != 12)
    {
-      printf("Loaded OBCP count does not match the one configured in Makefile");
+      printf("Loaded OBCP count (%d) does not match the one configured in Makefile", loaded_count);
    }
 
    if (limit_reached && extra_load_rejected && cleanup_ok && loaded_count == 12u) {
