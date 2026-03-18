@@ -17,6 +17,12 @@ SPACECREATOR?=spacecreator.AppImage
 # Disable the progress bar from taste-update-data-view when building systems
 export NO_PROGRESS_BAR=1
 
+N7OBCP_DIR := $(abspath ../../n7s-obcp)
+MPY_CROSS := $(N7OBCP_DIR)/src/micropython/mpy-cross/build/mpy-cross
+EXAMPLE_OBCP_PY := example-obcp.py
+EXAMPLE_OBCP_MPY := example-obcp.mpy
+EXAMPLE_OBCP_ARRAY := example-obcp-array.h
+
 # Get the list of ASN.1 files from Space Creator project file:
 DISTFILES=$(shell qmake ObcpTest.pro -o /tmp/null 2>&1)
 # Exclude system.asn here as the types inside do not changes - only the values in the PID
@@ -25,6 +31,17 @@ ASN1_FILES=$(shell find ${DISTFILES} 2>/dev/null | egrep '\.asn$$|\.asn1$$' | gr
 
 # For OBCP Load test
 export DEMO_USER_CFLAGS=-DOBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS=12
+
+$(MPY_CROSS):
+	$(MAKE) -C $(N7OBCP_DIR) mpy-cross
+
+$(EXAMPLE_OBCP_MPY): $(EXAMPLE_OBCP_PY) $(MPY_CROSS)
+	$(MPY_CROSS) -o $@ $<
+
+$(EXAMPLE_OBCP_ARRAY): $(EXAMPLE_OBCP_MPY)
+	xxd -i $< > $@
+
+example-obcp-artifacts: $(EXAMPLE_OBCP_MPY) $(EXAMPLE_OBCP_ARRAY)
 
 all:	release
 
@@ -134,6 +151,7 @@ DataView.aadl: ${ASN1_FILES}
 
 clean:
 	rm -rf work/build work/dataview work/glue_simu
+	rm -f $(EXAMPLE_OBCP_MPY) $(EXAMPLE_OBCP_ARRAY)
 	rm -f *.aadl  # Interface and Deployment views in AADL are generated
 	rm -f work/glue_release work/glue_debug work/glue_coverage work/skeletons_built
 	find work -type d -name "wrappers" -exec rm -rf {} + || :
@@ -146,5 +164,5 @@ clean:
 	find work -type f -path "*/QGenC/src/*.h" -not -name "simulink_definition_of_types.h" -not -name "*_invoke_ri.h" -exec rm -f {} + || :
 	find work -type f -path "*/QGenC/src/*.c" -exec rm -f {} + || :
 
-.PHONY: clean release debug coverage skeletons simu run simulink_skeletons
+.PHONY: clean release debug coverage skeletons simu run simulink_skeletons example-obcp-artifacts
 

@@ -376,6 +376,35 @@ typedef struct {
    const char      *src;
 } Harness_ObcpDef;
 
+typedef struct {
+   asn1SccOBCP_Id      id;
+   const unsigned char *code;
+   size_t               len;
+} Harness_PrecompiledObcpDef;
+
+/* Precompiled OBCP. The source code is in example-obcp.py.
+   The code contains obcpdatapool.writeintparameter(42, 1234).
+*/
+
+static const unsigned char OBCP_PRECOMPILED[] = {
+  0x4d, 0x06, 0x00, 0x1f, 0x04, 0x00, 0x1e, 0x65, 0x78, 0x61, 0x6d, 0x70,
+  0x6c, 0x65, 0x2d, 0x6f, 0x62, 0x63, 0x70, 0x2e, 0x70, 0x79, 0x00, 0x0f,
+  0x18, 0x6f, 0x62, 0x63, 0x70, 0x64, 0x61, 0x74, 0x61, 0x70, 0x6f, 0x6f,
+  0x6c, 0x00, 0x22, 0x77, 0x72, 0x69, 0x74, 0x65, 0x69, 0x6e, 0x74, 0x70,
+  0x61, 0x72, 0x61, 0x6d, 0x65, 0x74, 0x65, 0x72, 0x00, 0x81, 0x38, 0x18,
+  0x04, 0x01, 0x66, 0x80, 0x51, 0x1b, 0x02, 0x16, 0x02, 0x11, 0x02, 0x14,
+  0x03, 0xaa, 0x22, 0x89, 0x52, 0x36, 0x02, 0x59, 0x51, 0x63
+};
+
+static const unsigned int OBCP_PRECOMPILED_LEN = 82;
+
+static const Harness_PrecompiledObcpDef OBCP_PRECOMPILED_TEST = {
+    .id = {'P','R','E','C','P'},
+    .code = OBCP_PRECOMPILED,
+    .len = OBCP_PRECOMPILED_LEN,
+};
+
+
 /* IO write test OBCP: exercises the obcpio.write function by sending
  * plain text, numeric conversions and string concatenation to the output.
  */
@@ -638,6 +667,60 @@ static bool load_obcp(const Harness_ObcpDef *def)
    return (bool)ok;
 }
 
+static bool load_precompiled_obcp(const Harness_PrecompiledObcpDef *def)
+{
+   asn1SccOBCP_Code code;
+
+   if (def->len > sizeof(code.arr)) {
+      harness_report_failure_and_exit("Could not load precompiled OBCP %.5s: source size %zu exceeds limit %zu\n",
+                                      def->id,
+                                      def->len,
+                                      sizeof(code.arr));
+      return false;
+   }
+
+   memcpy(code.arr, def->code, def->len);
+   code.nCount = (int)def->len;
+
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_load_obcp(&def->id, &code, &ok);
+   if (!ok) {
+      harness_report_failure_and_exit("Could not load precompiled OBCP %.5s\n", def->id);
+   }
+   return (bool)ok;
+}
+
+static bool activate_precompiled_obcp(const Harness_PrecompiledObcpDef *def)
+{
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_activate_obcp(&def->id, &ok);
+   if (!ok) {
+      harness_report_failure_and_exit("Could not activate precompiled OBCP %.5s\n", def->id);
+   }
+   return (bool)ok;
+}
+
+static asn1SccOBCP_Execution_Status get_precompiled_status(const Harness_PrecompiledObcpDef *def)
+{
+   asn1SccOBCP_Execution_Status status = OBCP_Execution_Status_inactive;
+   asn1SccOBCP_Step_Id step_id = 0;
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_get_obcp_status(&def->id, &status, &step_id, &ok);
+   if (!ok) {
+      harness_report_failure_and_exit("Could not get status for precompiled OBCP %.5s\n", def->id);
+   }
+   return status;
+}
+
+static void unload_precompiled_obcp(const Harness_PrecompiledObcpDef *def)
+{
+   asn1SccT_Boolean ok = FALSE;
+   harness_RI_unload_obcp(&def->id, &ok);
+   if (!ok) {
+      harness_report_failure_and_exit("Could not unload precompiled OBCP %.5s\n", def->id);
+   }
+}
+
 static bool activate_obcp(const Harness_ObcpDef *def)
 {
    asn1SccT_Boolean ok = FALSE;
@@ -847,6 +930,7 @@ typedef enum {
    T_PKT_ENV_SEND,
    T_ABORT,
    T_STOP,
+   T_PRECOMPILED,
    T_LOAD_LIMIT,
    T_COUNT
 } Harness_TestIndex;
@@ -865,6 +949,7 @@ static Harness_TestResult test_results[T_COUNT] = {
    [T_PKT_ENV_SEND]    = { "Packet: OBCP->Env send",                   TEST_NOT_RUN },
    [T_ABORT]           = { "Abort OBCP (terminates infinite loop)",    TEST_NOT_RUN },
    [T_STOP]            = { "Stop OBCP at endstep boundary",            TEST_NOT_RUN },
+   [T_PRECOMPILED]     = { "Precompiled OBCP bytecode",                TEST_NOT_RUN },
    [T_LOAD_LIMIT]      = { "Loaded OBCP limit",                        TEST_NOT_RUN },
 };
 
@@ -910,6 +995,7 @@ typedef enum {
    PHASE_ABORT_TEST_WAIT,
    PHASE_STOP_TEST_RUNNING,
    PHASE_STOP_TEST_WAIT,
+   PHASE_PRECOMPILED_TEST,
 } Harness_Phase;
 
 static Harness_Phase harness_phase = PHASE_INIT;
@@ -971,6 +1057,9 @@ static void harness_record_phase_timeout(Harness_Phase phase)
       case PHASE_STOP_TEST_RUNNING:
       case PHASE_STOP_TEST_WAIT:
          test_record(T_STOP, false);
+         break;
+      case PHASE_PRECOMPILED_TEST:
+         test_record(T_PRECOMPILED, false);
          break;
       default:
          break;
@@ -1598,9 +1687,58 @@ void harness_PI_trigger(void)
                       STOPTEST_TARGET_STEP + 1);
             }
             unload_obcp(&OBCP_STOPTEST);
+
+            {
+               const asn1SccOBCP_Parameter_Id precompiled_param_id = 42u;
+               asn1SccOBCP_Parameter_Value zero_val;
+               zero_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
+               zero_val.u.int_value = 0;
+               harness_PI_set_parameter_value(&precompiled_param_id, &zero_val);
+            }
+
+            if (!load_precompiled_obcp(&OBCP_PRECOMPILED_TEST)) return;
+            if (!activate_precompiled_obcp(&OBCP_PRECOMPILED_TEST)) return;
+            printf("Precompiled OBCP test activated\n");
+            harness_set_phase(PHASE_PRECOMPILED_TEST);
+         }
+         break;
+      }
+
+      /* -----------------------------------------------------------------
+       * Wait for the precompiled OBCP to finish, then verify that it wrote
+       * datapool parameter 42 with value 1234 before running the load-limit
+       * test and reporting final results.
+       * ----------------------------------------------------------------- */
+      case PHASE_PRECOMPILED_TEST: {
+         const asn1SccOBCP_Execution_Status sp = get_precompiled_status(&OBCP_PRECOMPILED_TEST);
+
+         if (sp == OBCP_Execution_Status_inactive) {
+            const asn1SccOBCP_Parameter_Id precompiled_param_id = 42u;
+            const asn1SccOBCP_Parameter_Type int_type = OBCP_Parameter_Type_integer_type;
+            asn1SccOBCP_Parameter_Value value;
+
+            harness_PI_get_parameter_value(&precompiled_param_id, &int_type, &value);
+
+            const bool precompiled_ok =
+               value.kind == OBCP_Parameter_Value_int_value_PRESENT &&
+               value.u.int_value == 1234;
+
+            test_record(T_PRECOMPILED, precompiled_ok);
+            if (precompiled_ok) {
+               printf("Precompiled OBCP test PASSED: parameter %u updated to %d\n",
+                      (unsigned)precompiled_param_id,
+                      (int)value.u.int_value);
+            } else {
+               harness_error_printf("Precompiled OBCP test FAILED: parameter %u expected 1234, got %d\n",
+                                    (unsigned)precompiled_param_id,
+                                    value.kind == OBCP_Parameter_Value_int_value_PRESENT ?
+                                       (int)value.u.int_value : -1);
+            }
+
+            unload_precompiled_obcp(&OBCP_PRECOMPILED_TEST);
             test_record(T_LOAD_LIMIT, run_load_limit_test());
             report_final_results();
-            printf("All tests finished \u2014 exiting\n");
+            printf("All tests finished — exiting\n");
             kill(getpid(), SIGTERM);
          }
          break;
