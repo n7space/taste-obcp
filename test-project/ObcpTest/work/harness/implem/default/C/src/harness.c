@@ -19,6 +19,7 @@
 extern int32_t  Hal_SemaphoreCreate(void);
 extern bool     Hal_SemaphoreObtain(int32_t id);
 extern bool     Hal_SemaphoreRelease(int32_t id);
+extern bool     Hal_SleepNs(uint64_t time_ns);
 extern uint64_t Hal_GetElapsedTimeInNs(void);
 
 static int32_t harness_state_mutex = -1;
@@ -39,12 +40,21 @@ static void harness_unlock_state(void)
 
 static void report_final_results(void);
 
+static void harness_error_printf(const char *format, ...)
+{
+   va_list args;
+
+   va_start(args, format);
+   vfprintf(stderr, format, args);
+   va_end(args);
+}
+
 static void harness_report_failure_and_exit(const char *format, ...)
 {
    va_list args;
 
    va_start(args, format);
-   vprintf(format, args);
+   vfprintf(stderr, format, args);
    va_end(args);
 
    report_final_results();
@@ -121,6 +131,7 @@ static const char * const io_test_expected[] = {
    "IO test: numeric value: 42\n",
    "IO test: string concatenation\n",
 };
+#define OBCP_TEXT_COMPARE_LEN (sizeof(asn1SccOBCP_Text))
 #define IO_TEST_EXPECTED_COUNT \
    (sizeof(io_test_expected) / sizeof(io_test_expected[0]))
 
@@ -138,12 +149,15 @@ void harness_PI_output_message
    harness_lock_state();
    if (io_write_test_active) {
       if (io_test_msg_index >= IO_TEST_EXPECTED_COUNT) {
-         printf("IO test ERROR: unexpected extra message: \"%s\"\n", *IN_text);
-      } else if (strcmp(*IN_text, io_test_expected[io_test_msg_index]) != 0) {
-         printf("IO test ERROR: message %zu: expected \"%s\", got \"%s\"\n",
-                io_test_msg_index,
-                io_test_expected[io_test_msg_index],
-                *IN_text);
+         harness_error_printf("IO test ERROR: unexpected extra message: \"%s\"\n",
+                              *IN_text);
+      } else if (strncmp(*IN_text,
+                         io_test_expected[io_test_msg_index],
+                         OBCP_TEXT_COMPARE_LEN) != 0) {
+         harness_error_printf("IO test ERROR: message %zu: expected \"%s\", got \"%s\"\n",
+                              io_test_msg_index,
+                              io_test_expected[io_test_msg_index],
+                              *IN_text);
       }
       io_test_msg_index++;
    }
@@ -172,14 +186,14 @@ void harness_PI_send_event( const asn1SccOBCP_Event_Id * event_id)
    harness_lock_state();
    if (events_test_active) {
       if (events_test_received_count >= EVENTS_TEST_EXPECTED_COUNT) {
-         printf("Events test ERROR: unexpected extra event: ID=%u\n",
-                (unsigned)*event_id);
+         harness_error_printf("Events test ERROR: unexpected extra event: ID=%u\n",
+                              (unsigned)*event_id);
          events_test_all_ok = false;
       } else if (*event_id != events_test_expected[events_test_received_count]) {
-         printf("Events test ERROR: event %zu: expected ID=%u, got ID=%u\n",
-                events_test_received_count,
-                (unsigned)events_test_expected[events_test_received_count],
-                (unsigned)*event_id);
+         harness_error_printf("Events test ERROR: event %zu: expected ID=%u, got ID=%u\n",
+                              events_test_received_count,
+                              (unsigned)events_test_expected[events_test_received_count],
+                              (unsigned)*event_id);
          events_test_all_ok = false;
       }
       events_test_received_count++;
@@ -233,6 +247,9 @@ static bool              pkttest_active              = false;
 static bool              pkttest_env_output_received = false;
 static asn1SccOBCP_Packet pkttest_env_output_packet;
 
+#define HARNESS_PACKET_RETRY_SLEEP_NS   1000000ULL
+#define HARNESS_PACKET_RETRY_TIMEOUT_NS 5000000000ULL
+
 /* ----------------------------------------------------------------------- */
 
 void harness_PI_send_packet
@@ -251,10 +268,20 @@ void harness_PI_send_packet
       printf("Packets test: relaying %d-byte packet on channel %u\n",
              IN_packet->nCount, (unsigned)*IN_channel);
       asn1SccT_Boolean receive_success = FALSE;
+      const uint64_t deadline_ns = Hal_GetElapsedTimeInNs() + HARNESS_PACKET_RETRY_TIMEOUT_NS;
       while (!receive_success)
       {
-         // Push the packet untill success
+         // Push the packet until success
          harness_RI_receive_packet(IN_channel, IN_packet, &receive_success);
+         if (!receive_success) {
+            if (Hal_GetElapsedTimeInNs() >= deadline_ns) {
+               harness_error_printf("Packets test FAILED: timed out relaying packet on channel %u\n",
+                                    (unsigned)*IN_channel);
+               *OUT_success = FALSE;
+               return;
+            }
+            (void)Hal_SleepNs(HARNESS_PACKET_RETRY_SLEEP_NS);
+         }
       }
       return;
    }
@@ -301,6 +328,9 @@ void harness_PI_set_parameter_value
       param_store[empty].id    = *IN_id;
       param_store[empty].value = *IN_parameter_value;
       param_store[empty].valid = true;
+   } else {
+      harness_error_printf("Parameter store ERROR: no free slot for parameter ID=%u\n",
+                           (unsigned)*IN_id);
    }
    harness_unlock_state();
 }
@@ -557,6 +587,15 @@ static bool load_obcp(const Harness_ObcpDef *def)
 {
    asn1SccOBCP_Code code;
    const size_t len = strlen(def->src) + 1;
+
+   if (len > sizeof(code.arr)) {
+      harness_report_failure_and_exit("Could not load OBCP %.5s: source size %zu exceeds limit %zu\n",
+                                      def->id,
+                                      len,
+                                      sizeof(code.arr));
+      return false;
+   }
+
    memcpy(code.arr, def->src, len);
    code.nCount = (int)len;
 
@@ -585,7 +624,7 @@ static asn1SccOBCP_Execution_Status get_status(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_get_obcp_status(&def->id, &status, &step_id, &ok);
    if (!ok) {
-      printf("Could not get status for OBCP %.5s\n", def->id);
+      harness_error_printf("Could not get status for OBCP %.5s\n", def->id);
    }
    return status;
 }
@@ -597,7 +636,7 @@ static asn1SccOBCP_Step_Id get_current_step(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_get_obcp_status(&def->id, &status, &step_id, &ok);
    if (!ok) {
-      printf("Could not get status for OBCP %.5s\n", def->id);
+      harness_error_printf("Could not get status for OBCP %.5s\n", def->id);
    }
    return step_id;
 }
@@ -616,7 +655,7 @@ static bool abort_obcp(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_abort_obcp(&def->id, &ok);
    if (!ok) {
-      printf("Could not abort OBCP %.5s\n", def->id);
+      harness_error_printf("Could not abort OBCP %.5s\n", def->id);
    }
    return (bool)ok;
 }
@@ -627,8 +666,8 @@ static bool stop_obcp_at(const Harness_ObcpDef *def,
    asn1SccT_Boolean ok = FALSE;
    harness_RI_stop_obcp(&def->id, &step_id, &ok);
    if (!ok) {
-      printf("Could not stop OBCP %.5s at step %u\n",
-             def->id, (unsigned)step_id);
+      harness_error_printf("Could not stop OBCP %.5s at step %u\n",
+                           def->id, (unsigned)step_id);
    }
    return (bool)ok;
 }
@@ -655,6 +694,13 @@ static bool try_load_obcp_id(const asn1SccOBCP_Id *id, const char *src)
    asn1SccOBCP_Code code;
    const size_t len = strlen(src) + 1u;
    asn1SccT_Boolean ok = FALSE;
+
+   if (len > sizeof(code.arr)) {
+      harness_error_printf("Load limit test FAILED: probe source size %zu exceeds limit %zu\n",
+                           len,
+                           sizeof(code.arr));
+      return false;
+   }
 
    memcpy(code.arr, src, len);
    code.nCount = (int)len;
@@ -689,8 +735,8 @@ static bool run_load_limit_test(void)
          break;
       }
       if (!try_load_obcp_id(&id, load_limit_test_src)) {
-         printf("Load limit test FAILED: could not load probe OBCP %.5s before limit was reached\n",
-                id);
+         harness_error_printf("Load limit test FAILED: could not load probe OBCP %.5s before limit was reached\n",
+                              id);
          cleanup_ok = false;
          break;
       }
@@ -709,25 +755,27 @@ static bool run_load_limit_test(void)
 
    for (unsigned index = 0u; index < loaded_count; ++index) {
       if (!try_unload_obcp_id(&loaded_ids[index])) {
-         printf("Load limit test FAILED: could not unload probe OBCP %.5s during cleanup\n",
-                loaded_ids[index]);
+         harness_error_printf("Load limit test FAILED: could not unload probe OBCP %.5s during cleanup\n",
+                              loaded_ids[index]);
          cleanup_ok = false;
       }
    }
 
    if (!limit_reached) {
-      printf("Load limit test FAILED: no load limit reached within %u probe OBCPs\n",
-             LOAD_LIMIT_TEST_MAX_OBCPS);
+      harness_error_printf("Load limit test FAILED: no load limit reached within %u probe OBCPs\n",
+                           LOAD_LIMIT_TEST_MAX_OBCPS);
    }
 
    if (limit_reached && !extra_load_rejected) {
-      printf("Load limit test FAILED: engine accepted an extra load beyond the discovered limit\n");
+      harness_error_printf("Load limit test FAILED: engine accepted an extra load beyond the discovered limit\n");
    }
 
    // Main makefile should declare OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS as 12
+   // 12 is hardcoded to verify that the declaration in the Makefile is the source of truth.
    if (loaded_count != 12)
    {
-      printf("Loaded OBCP count (%d) does not match the one configured in Makefile", loaded_count);
+      harness_error_printf("Loaded OBCP count (%u) does not match the one configured in Makefile\n",
+                           loaded_count);
    }
 
    if (limit_reached && extra_load_rejected && cleanup_ok && loaded_count == 12u) {
@@ -834,6 +882,10 @@ typedef enum {
 } Harness_Phase;
 
 static Harness_Phase harness_phase = PHASE_INIT;
+static Harness_Phase harness_phase_timeout_phase = PHASE_INIT;
+static uint64_t      harness_phase_started_ns = 0ULL;
+
+#define HARNESS_PHASE_TIMEOUT_NS 20000000000ULL
 
 static Harness_Phase harness_get_phase(void)
 {
@@ -843,6 +895,55 @@ static Harness_Phase harness_get_phase(void)
 static void harness_set_phase(Harness_Phase phase)
 {
    harness_phase = phase;
+}
+
+static bool harness_phase_has_timeout(Harness_Phase phase)
+{
+   return phase != PHASE_INIT;
+}
+
+static void harness_record_phase_timeout(Harness_Phase phase)
+{
+   switch (phase) {
+      case PHASE_IO_WRITE_TEST:
+         test_record(T_IO_WRITE, false);
+         break;
+      case PHASE_DATAPOOL_TEST:
+         test_record(T_DATAPOOL, false);
+         break;
+      case PHASE_EVENTS_TEST:
+         test_record(T_EVENTS, false);
+         break;
+      case PHASE_STEP_TEST_WAIT_STEP4:
+      case PHASE_STEP_TEST_COMPLETE:
+         test_record(T_STEP_CONTROL, false);
+         break;
+      case PHASE_CONCURRENCY_WAIT_TEST1:
+      case PHASE_CONCURRENCY_ALL_RUNNING:
+         test_record(T_CONCURRENCY, false);
+         break;
+      case PHASE_GETTIME_TEST:
+         test_record(T_GETTIME, false);
+         break;
+      case PHASE_PACKETS_INIT:
+      case PHASE_PACKETS_RUNNING:
+         test_record(T_PKT_ENV_RECV, false);
+         test_record(T_PKT_INTER_OBCP, false);
+         test_record(T_PKT_NONBLOCKING, false);
+         test_record(T_PKT_CANSEND, false);
+         test_record(T_PKT_ENV_SEND, false);
+         break;
+      case PHASE_ABORT_TEST_RUNNING:
+      case PHASE_ABORT_TEST_WAIT:
+         test_record(T_ABORT, false);
+         break;
+      case PHASE_STOP_TEST_RUNNING:
+      case PHASE_STOP_TEST_WAIT:
+         test_record(T_STOP, false);
+         break;
+      default:
+         break;
+   }
 }
 
 /* This function is not broken down on purpose, as the tests execute
@@ -859,7 +960,22 @@ static void harness_set_phase(Harness_Phase phase)
    */
 void harness_PI_trigger(void)
 {
-   switch (harness_get_phase()) {
+   const Harness_Phase phase = harness_get_phase();
+   const uint64_t now_ns = Hal_GetElapsedTimeInNs();
+
+   if (phase != harness_phase_timeout_phase) {
+      harness_phase_timeout_phase = phase;
+      harness_phase_started_ns = now_ns;
+   } else if (harness_phase_has_timeout(phase) &&
+              now_ns - harness_phase_started_ns >= HARNESS_PHASE_TIMEOUT_NS) {
+      harness_record_phase_timeout(phase);
+      harness_report_failure_and_exit("Harness FAILED: phase %d timed out after %llu ns\n",
+                                      (int)phase,
+                                      (unsigned long long)(now_ns - harness_phase_started_ns));
+      return;
+   }
+
+   switch (phase) {
 
       /* -----------------------------------------------------------------
        * Start the engine and kick off the IO write test OBCP.
@@ -897,8 +1013,8 @@ void harness_PI_trigger(void)
 
             test_record(T_IO_WRITE, io_test_count == IO_TEST_EXPECTED_COUNT);
             if (io_test_count != IO_TEST_EXPECTED_COUNT) {
-               printf("IO test ERROR: expected %zu messages, received %zu\n",
-                      IO_TEST_EXPECTED_COUNT, io_test_count);
+               harness_error_printf("IO test ERROR: expected %zu messages, received %zu\n",
+                                    IO_TEST_EXPECTED_COUNT, io_test_count);
             } else {
                printf("IO write tests finished — all %zu messages verified OK\n",
                       IO_TEST_EXPECTED_COUNT);
@@ -944,10 +1060,10 @@ void harness_PI_trigger(void)
             if (datapool_ok) {
                printf("Datapool tests finished\n");
             } else {
-               printf("Datapool test FAILED: success flag param %u value=%d\n",
-                      (unsigned)success_id,
-                      success_val.kind == OBCP_Parameter_Value_int_value_PRESENT ?
-                         (int)success_val.u.int_value : -1);
+               harness_error_printf("Datapool test FAILED: success flag param %u value=%d\n",
+                                    (unsigned)success_id,
+                                    success_val.kind == OBCP_Parameter_Value_int_value_PRESENT ?
+                                       (int)success_val.u.int_value : -1);
             }
             unload_obcp(&OBCP_DPTEST);
 
@@ -986,10 +1102,10 @@ void harness_PI_trigger(void)
                                    events_count == EVENTS_TEST_EXPECTED_COUNT;
             test_record(T_EVENTS, events_ok);
             if (!events_ok) {
-               printf("Events test FAILED: expected %zu events, received %zu%s\n",
-                      EVENTS_TEST_EXPECTED_COUNT,
-                      events_count,
-                      events_ok_order ? "" : " (order/ID mismatch)");
+               harness_error_printf("Events test FAILED: expected %zu events, received %zu%s\n",
+                                    EVENTS_TEST_EXPECTED_COUNT,
+                                    events_count,
+                                    events_ok_order ? "" : " (order/ID mismatch)");
             } else {
                printf("Events test PASSED: all %zu events received in correct order\n",
                       EVENTS_TEST_EXPECTED_COUNT);
@@ -1063,9 +1179,9 @@ void harness_PI_trigger(void)
                       "step %d hold-and-release verified\n",
                       STEPTEST_LAST_STEP, STEPTEST_BLOCKING_STEP);
             } else {
-               printf("Step test FAILED: steps_done=%d, last_step=%d "
-                      "(expected %d)\n",
-                      (int)steps_done, (int)last_step, STEPTEST_LAST_STEP);
+               harness_error_printf("Step test FAILED: steps_done=%d, last_step=%d "
+                                    "(expected %d)\n",
+                                    (int)steps_done, (int)last_step, STEPTEST_LAST_STEP);
             }
 
             unload_obcp(&OBCP_STEPTEST);
@@ -1137,9 +1253,9 @@ void harness_PI_trigger(void)
             if (concurrency_ok) {
                printf("Concurrency test PASSED: TEST1/TEST2 and TEST2/TEST3 overlapped in active execution\n");
             } else {
-               printf("Concurrency test FAILED: overlap observed TEST1/TEST2=%d, TEST2/TEST3=%d\n",
-                      (int)concurrency_test12_overlap_seen,
-                      (int)concurrency_test23_overlap_seen);
+               harness_error_printf("Concurrency test FAILED: overlap observed TEST1/TEST2=%d, TEST2/TEST3=%d\n",
+                                    (int)concurrency_test12_overlap_seen,
+                                    (int)concurrency_test23_overlap_seen);
             }
             unload_obcp(&OBCP_TEST2);
             unload_obcp(&OBCP_TEST3);
@@ -1180,9 +1296,9 @@ void harness_PI_trigger(void)
                       "(nominal=%d ms, tolerance=\u00b1%d ms)\n",
                       elapsed_ms, TIMETEST_WAIT_MS, TIMETEST_TOLERANCE_MS);
             } else {
-               printf("Gettime test FAILED: elapsed=%d ms "
-                      "(expected %d\u00b1%d ms)\n",
-                      elapsed_ms, TIMETEST_WAIT_MS, TIMETEST_TOLERANCE_MS);
+               harness_error_printf("Gettime test FAILED: elapsed=%d ms "
+                                    "(expected %d\u00b1%d ms)\n",
+                                    elapsed_ms, TIMETEST_WAIT_MS, TIMETEST_TOLERANCE_MS);
             }
 
             printf("Gettime test finished\n");
@@ -1208,9 +1324,18 @@ void harness_PI_trigger(void)
          env_in.arr[3] = (byte)0xDD;
          env_in.nCount = 4;
          asn1SccT_Boolean receive_success = FALSE;
+         const uint64_t deadline_ns = Hal_GetElapsedTimeInNs() + HARNESS_PACKET_RETRY_TIMEOUT_NS;
          while (!receive_success)
          {
             harness_RI_receive_packet(&ch0, &env_in, &receive_success);
+            if (!receive_success) {
+               if (Hal_GetElapsedTimeInNs() >= deadline_ns) {
+                  harness_record_phase_timeout(PHASE_PACKETS_INIT);
+                  harness_report_failure_and_exit("Packets test FAILED: timed out injecting env-input packet on channel 0\n");
+                  return;
+               }
+               (void)Hal_SleepNs(HARNESS_PACKET_RETRY_SLEEP_NS);
+            }
          }
          printf("Packets test: injected 4-byte env-input packet on channel 0\n");
 
@@ -1299,6 +1424,9 @@ void harness_PI_trigger(void)
             const bool all_ok = env_recv_ok && inter_ok && nonblock_ok &&
                                 cansend_ok  && env_out_ok;
             printf("Packets test overall: %s\n", all_ok ? "PASSED" : "FAILED");
+            if (!all_ok) {
+               harness_error_printf("Packets test FAILED: one or more packet checks failed\n");
+            }
             unload_obcp(&OBCP_PKTRECV);
             unload_obcp(&OBCP_PKTSEND);
 
@@ -1340,8 +1468,8 @@ void harness_PI_trigger(void)
             abort_test_wait_ticks++;
             if (abort_test_wait_ticks >= ABORTTEST_WAIT_TIMEOUT_TICKS) {
                test_record(T_ABORT, false);
-               printf("Abort test FAILED: OBCP did not reach inactive within %u trigger ticks after abort request\n",
-                      ABORTTEST_WAIT_TIMEOUT_TICKS);
+               harness_error_printf("Abort test FAILED: OBCP did not reach inactive within %u trigger ticks after abort request\n",
+                                    ABORTTEST_WAIT_TIMEOUT_TICKS);
                // Abort does not work, so unloading makes no sense. We should have enough remaining slots.
                start_next_test = true;
             }
@@ -1408,9 +1536,9 @@ void harness_PI_trigger(void)
                  pid <= STOPTEST_STEP3_PARAM_ID; ++pid) {
                harness_PI_get_parameter_value(&pid, &int_type, &v);
                if (v.u.int_value != 1) {
-                  printf("Stop test FAILED: param %u expected 1, got %d "
-                         "(step body before/at stop not executed)\n",
-                         (unsigned)pid, (int)v.u.int_value);
+                  harness_error_printf("Stop test FAILED: param %u expected 1, got %d "
+                                       "(step body before/at stop not executed)\n",
+                                       (unsigned)pid, (int)v.u.int_value);
                   ok = false;
                }
             }
@@ -1420,9 +1548,9 @@ void harness_PI_trigger(void)
                  pid <= STOPTEST_DONE_PARAM_ID; ++pid) {
                harness_PI_get_parameter_value(&pid, &int_type, &v);
                if (v.u.int_value != 0) {
-                  printf("Stop test FAILED: param %u expected 0, got %d "
-                         "(execution continued past stop step)\n",
-                         (unsigned)pid, (int)v.u.int_value);
+                  harness_error_printf("Stop test FAILED: param %u expected 0, got %d "
+                                       "(execution continued past stop step)\n",
+                                       (unsigned)pid, (int)v.u.int_value);
                   ok = false;
                }
             }
@@ -1442,6 +1570,10 @@ void harness_PI_trigger(void)
          }
          break;
       }
+
+      default:
+         harness_report_failure_and_exit("Harness ERROR: unexpected phase %d\n", (int)phase);
+         return;
    }
 }
 
