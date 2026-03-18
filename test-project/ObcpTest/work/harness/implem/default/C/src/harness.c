@@ -366,6 +366,9 @@ static const Harness_ObcpDef OBCP_TEST3 = {
    .src = "import obcptime\nobcptime.wait(3000)\n"
 };
 
+static bool concurrency_test12_overlap_seen = false;
+static bool concurrency_test23_overlap_seen = false;
+
 /* Gettime test OBCP: records the time before and after a known wait period,
  * stores the elapsed milliseconds and a pass/fail flag in the datapool.
  * Parameter IDs: 10 = elapsed milliseconds (int), 11 = passed (int: 1=pass)
@@ -710,6 +713,18 @@ static void harness_set_phase(Harness_Phase phase)
    harness_phase = phase;
 }
 
+/* This function is not broken down on purpose, as the tests execute
+   phase by phase, semi-asynchronously.
+   Each test is usually broken down the following way:
+   - state N -> initialization,
+   - state N+1 -> verification.
+   As a consequence, in state N+1:
+   - test N is being verified,
+   - test N + 1 is being started.
+   Partial verification is sometimes done in provided interfaces 
+   (e.g., event or write counting).
+   In such case, trigger verifies the partial results.
+   */
 void harness_PI_trigger(void)
 {
    switch (harness_get_phase()) {
@@ -927,6 +942,9 @@ void harness_PI_trigger(void)
             if (!load_obcp(&OBCP_TEST2)) return;
             if (!load_obcp(&OBCP_TEST3)) return;
 
+            concurrency_test12_overlap_seen = false;
+            concurrency_test23_overlap_seen = false;
+
             /* TEST1 and TEST2 start immediately; TEST3 waits for TEST1 */
             if (!activate_obcp(&OBCP_TEST1)) return;
             if (!activate_obcp(&OBCP_TEST2)) return;
@@ -943,9 +961,15 @@ void harness_PI_trigger(void)
        * ----------------------------------------------------------------- */
       case PHASE_CONCURRENCY_WAIT_TEST1: {
          const asn1SccOBCP_Execution_Status s1 = get_status(&OBCP_TEST1);
+         const asn1SccOBCP_Execution_Status s2 = get_status(&OBCP_TEST2);
 
          printf("Status — TEST1: %d  TEST2: %d\n",
-                s1, get_status(&OBCP_TEST2));
+                s1, s2);
+
+         if (s1 == OBCP_Execution_Status_active_and_running &&
+             s2 == OBCP_Execution_Status_active_and_running) {
+            concurrency_test12_overlap_seen = true;
+         }
 
          if (s1 == OBCP_Execution_Status_inactive) {
             printf("TEST1 finished — activating TEST3 (3 s)\n");
@@ -966,11 +990,25 @@ void harness_PI_trigger(void)
 
          printf("Status — TEST2: %d  TEST3: %d\n", s2, s3);
 
+         if (s2 == OBCP_Execution_Status_active_and_running &&
+             s3 == OBCP_Execution_Status_active_and_running) {
+            concurrency_test23_overlap_seen = true;
+         }
+
          if (s2 == OBCP_Execution_Status_inactive &&
              s3 == OBCP_Execution_Status_inactive)
          {
-            test_record(T_CONCURRENCY, true);
-            printf("Concurrency tests finished\n");
+            const bool concurrency_ok = concurrency_test12_overlap_seen &&
+                                        concurrency_test23_overlap_seen;
+
+            test_record(T_CONCURRENCY, concurrency_ok);
+            if (concurrency_ok) {
+               printf("Concurrency test PASSED: TEST1/TEST2 and TEST2/TEST3 overlapped in active execution\n");
+            } else {
+               printf("Concurrency test FAILED: overlap observed TEST1/TEST2=%d, TEST2/TEST3=%d\n",
+                      (int)concurrency_test12_overlap_seen,
+                      (int)concurrency_test23_overlap_seen);
+            }
             unload_obcp(&OBCP_TEST2);
             unload_obcp(&OBCP_TEST3);
 
