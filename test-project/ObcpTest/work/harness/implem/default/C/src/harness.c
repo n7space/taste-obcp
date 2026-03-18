@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdarg.h>
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
@@ -33,6 +34,21 @@ static void harness_unlock_state(void)
    if (harness_state_mutex >= 0) {
       (void)Hal_SemaphoreRelease(harness_state_mutex);
    }
+}
+
+static void report_final_results(void);
+
+static void harness_report_failure_and_exit(const char *format, ...)
+{
+   va_list args;
+
+   va_start(args, format);
+   vprintf(format, args);
+   va_end(args);
+
+   report_final_results();
+   printf("All tests finished — exiting\n");
+   kill(getpid(), SIGTERM);
 }
 
 
@@ -330,6 +346,7 @@ static const Harness_ObcpDef OBCP_DPTEST = {
       "obcpio.write('DP enum OK: ' + str(v) + '\\n')\n"
       "obcpdatapool.writefloatparameter(3, 2.718)\n"
       "v = obcpdatapool.readfloatparameter(3)\n"
+      "if abs(v - 2.718) > 0.001: raise RuntimeError('float fail')\n"
       "obcpio.write('DP float OK: ' + str(v) + '\\n')\n"
       "obcpdatapool.writeboolparameter(4, True)\n"
       "v = obcpdatapool.readboolparameter(4)\n"
@@ -542,7 +559,7 @@ static bool load_obcp(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_load_obcp(&def->id, &code, &ok);
    if (!ok) {
-      printf("Could not load OBCP %.5s\n", def->id);
+      harness_report_failure_and_exit("Could not load OBCP %.5s\n", def->id);
    }
    return (bool)ok;
 }
@@ -552,7 +569,7 @@ static bool activate_obcp(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_activate_obcp(&def->id, &ok);
    if (!ok) {
-      printf("Could not activate OBCP %.5s\n", def->id);
+      harness_report_failure_and_exit("Could not activate OBCP %.5s\n", def->id);
    }
    return (bool)ok;
 }
@@ -586,7 +603,7 @@ static void unload_obcp(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_unload_obcp(&def->id, &ok);
    if (!ok) {
-      printf("Could not unload OBCP %.5s\n", def->id);
+      harness_report_failure_and_exit("Could not unload OBCP %.5s\n", def->id);
    }
 }
 
