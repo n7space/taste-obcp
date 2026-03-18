@@ -1,6 +1,6 @@
 REQUIREMENT ID; TEST FOLDERS; TESTS
 MBEP-FUN-470; loading OBCP; ALL
-MBEP-FUN-480; defining the number of OBCP; T_CONCURRENCY, number is defined via OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS
+MBEP-FUN-480; defining the number of OBCP; T_LOAD_LIMIT
 MBEP-FUN-490; unloading an OBCP; ALL
 MBEP-FUN-500; activating an OBCP; ALL
 MBEP-FUN-510; executing OBCPs concurrently; T_CONCURRENCY

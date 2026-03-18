@@ -19,6 +19,7 @@
 extern int32_t  Hal_SemaphoreCreate(void);
 extern bool     Hal_SemaphoreObtain(int32_t id);
 extern bool     Hal_SemaphoreRelease(int32_t id);
+extern uint64_t Hal_GetElapsedTimeInNs(void);
 
 static int32_t harness_state_mutex = -1;
 
@@ -64,10 +65,11 @@ void harness_PI_get_current_time
        asn1SccT_Int32 *OUT_milliseconds)
 
 {
-   struct timespec ts;
-   clock_gettime(CLOCK_MONOTONIC, &ts);
-   *OUT_seconds      = (asn1SccT_Int32)ts.tv_sec;
-   *OUT_milliseconds = (asn1SccT_Int32)(ts.tv_nsec / 1000000L);
+   const uint64_t elapsed_ns = Hal_GetElapsedTimeInNs();
+   const uint64_t elapsed_ms = elapsed_ns / 1000000ULL;
+
+   *OUT_seconds      = (asn1SccT_Int32)(elapsed_ms / 1000ULL);
+   *OUT_milliseconds = (asn1SccT_Int32)(elapsed_ms % 1000ULL);
 }
 
 
@@ -389,6 +391,8 @@ static unsigned abort_test_wait_ticks = 0u;
 
 #define ABORTTEST_WAIT_TIMEOUT_TICKS  2u
 
+#define LOAD_LIMIT_TEST_MAX_OBCPS     32u
+
 /* Gettime test OBCP: records the time before and after a known wait period,
  * stores the elapsed milliseconds and a pass/fail flag in the datapool.
  * Parameter IDs: 10 = elapsed milliseconds (int), 11 = passed (int: 1=pass)
@@ -629,6 +633,112 @@ static bool stop_obcp_at(const Harness_ObcpDef *def,
    return (bool)ok;
 }
 
+static void make_load_limit_test_id(unsigned index, asn1SccOBCP_Id id)
+{
+   id[0] = 'L';
+   id[1] = 'M';
+   id[2] = 'T';
+   id[3] = (char)('0' + ((index / 10u) % 10u));
+   id[4] = (char)('0' + (index % 10u));
+}
+
+static bool can_load_obcp_id(const asn1SccOBCP_Id *id)
+{
+   asn1SccT_Boolean ok = FALSE;
+
+   harness_RI_can_obcp_be_loaded(id, &ok);
+   return (bool)ok;
+}
+
+static bool try_load_obcp_id(const asn1SccOBCP_Id *id, const char *src)
+{
+   asn1SccOBCP_Code code;
+   const size_t len = strlen(src) + 1u;
+   asn1SccT_Boolean ok = FALSE;
+
+   memcpy(code.arr, src, len);
+   code.nCount = (int)len;
+   harness_RI_load_obcp(id, &code, &ok);
+
+   return (bool)ok;
+}
+
+static bool try_unload_obcp_id(const asn1SccOBCP_Id *id)
+{
+   asn1SccT_Boolean ok = FALSE;
+
+   harness_RI_unload_obcp(id, &ok);
+   return (bool)ok;
+}
+
+static bool run_load_limit_test(void)
+{
+   static const char load_limit_test_src[] = "pass\n";
+   asn1SccOBCP_Id loaded_ids[LOAD_LIMIT_TEST_MAX_OBCPS];
+   unsigned loaded_count = 0u;
+   bool limit_reached = false;
+   bool extra_load_rejected = false;
+   bool cleanup_ok = true;
+
+   for (unsigned index = 0u; index < LOAD_LIMIT_TEST_MAX_OBCPS; ++index) {
+      asn1SccOBCP_Id id;
+
+      make_load_limit_test_id(index, id);
+      if (!can_load_obcp_id(&id)) {
+         limit_reached = true;
+         break;
+      }
+      if (!try_load_obcp_id(&id, load_limit_test_src)) {
+         printf("Load limit test FAILED: could not load probe OBCP %.5s before limit was reached\n",
+                id);
+         cleanup_ok = false;
+         break;
+      }
+
+      memcpy(loaded_ids[loaded_count], id, sizeof(asn1SccOBCP_Id));
+      loaded_count++;
+   }
+
+   if (limit_reached) {
+      asn1SccOBCP_Id extra_id;
+
+      make_load_limit_test_id(loaded_count, extra_id);
+      extra_load_rejected = !can_load_obcp_id(&extra_id) &&
+                            !try_load_obcp_id(&extra_id, load_limit_test_src);
+   }
+
+   for (unsigned index = 0u; index < loaded_count; ++index) {
+      if (!try_unload_obcp_id(&loaded_ids[index])) {
+         printf("Load limit test FAILED: could not unload probe OBCP %.5s during cleanup\n",
+                loaded_ids[index]);
+         cleanup_ok = false;
+      }
+   }
+
+   if (!limit_reached) {
+      printf("Load limit test FAILED: no load limit reached within %u probe OBCPs\n",
+             LOAD_LIMIT_TEST_MAX_OBCPS);
+   }
+
+   if (limit_reached && !extra_load_rejected) {
+      printf("Load limit test FAILED: engine accepted an extra load beyond the discovered limit\n");
+   }
+
+   // Main makefile should declare OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS as 12
+   if (loaded_count != 12)
+   {
+      printf("Loaded OBCP count does not match the one configured in Makefile");
+   }
+
+   if (limit_reached && extra_load_rejected && cleanup_ok && loaded_count == 12u) {
+      printf("Load limit test PASSED: load limit reached after %u probe OBCPs and one extra load was rejected\n",
+             loaded_count);
+      return true;
+   }
+
+   return false;
+}
+
 /* -----------------------------------------------------------------------
  * Test result table
  * ----------------------------------------------------------------------- */
@@ -658,6 +768,7 @@ typedef enum {
    T_PKT_ENV_SEND,
    T_ABORT,
    T_STOP,
+   T_LOAD_LIMIT,
    T_COUNT
 } Harness_TestIndex;
 
@@ -675,6 +786,7 @@ static Harness_TestResult test_results[T_COUNT] = {
    [T_PKT_ENV_SEND]    = { "Packet: OBCP->Env send",                   TEST_NOT_RUN },
    [T_ABORT]           = { "Abort OBCP (terminates infinite loop)",    TEST_NOT_RUN },
    [T_STOP]            = { "Stop OBCP at endstep boundary",            TEST_NOT_RUN },
+   [T_LOAD_LIMIT]      = { "Loaded OBCP limit",                        TEST_NOT_RUN },
 };
 
 static void test_record(Harness_TestIndex idx, bool passed)
@@ -1323,6 +1435,7 @@ void harness_PI_trigger(void)
                       STOPTEST_TARGET_STEP + 1);
             }
             unload_obcp(&OBCP_STOPTEST);
+            test_record(T_LOAD_LIMIT, run_load_limit_test());
             report_final_results();
             printf("All tests finished \u2014 exiting\n");
             kill(getpid(), SIGTERM);
