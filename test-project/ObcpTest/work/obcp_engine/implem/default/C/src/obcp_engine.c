@@ -57,6 +57,9 @@ extern bool     Hal_SemaphoreRelease(int32_t id);
 #define OBCP_PACKET_CHANNEL_COUNT (4)
 #endif
 
+#define OBCP_MPY_MAGIC_NUMBER          (0x4dU)
+#define OBCP_MPY_VERSION_MAJOR_NUMBER  (0x06U)
+
 /* Polling interval used when a finite receive timeout is requested (10 ms). */
 #define PACKET_POLL_INTERVAL_NS  (10000000ULL)
 
@@ -122,6 +125,13 @@ typedef struct
 } OBCP_PacketChannel;
 
 static OBCP_PacketChannel packet_channels[OBCP_PACKET_CHANNEL_COUNT];
+
+static bool obcp_code_is_precompiled_mpy(const asn1SccOBCP_Code *code)
+{
+   return code->nCount >= 2 &&
+          (uint8_t)code->arr[0] == OBCP_MPY_MAGIC_NUMBER &&
+          (uint8_t)code->arr[1] == OBCP_MPY_VERSION_MAJOR_NUMBER;
+}
 
 static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
 {
@@ -854,10 +864,21 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
    obcpengine_provide_buffer(workers[worker_id].packet_buffer,
                              OBCP_PACKET_BUFFER_SIZE);
 
-   obcpengine_execute_py(
-       (const char *)obcps[idx].code.arr,
-       workers[worker_id].heap.bytes,
-       OBCP_MICROPYTHON_HEAP_SIZE);
+   if (obcp_code_is_precompiled_mpy(&obcps[idx].code))
+   {
+      obcpengine_execute_mpy(
+         (const uint8_t *)obcps[idx].code.arr,
+         (size_t)obcps[idx].code.nCount,
+         workers[worker_id].heap.bytes,
+         OBCP_MICROPYTHON_HEAP_SIZE);
+   }
+   else
+   {
+      obcpengine_execute_py(
+         (const char *)obcps[idx].code.arr,
+         workers[worker_id].heap.bytes,
+         OBCP_MICROPYTHON_HEAP_SIZE);
+   }
 
    workers[worker_id].native_thread_handle = 0;
    obcp_engine_tls_set(obcp_thread_local_value_index_obcp_index, 0u);
