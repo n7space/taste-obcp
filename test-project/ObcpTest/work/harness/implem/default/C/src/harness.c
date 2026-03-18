@@ -22,7 +22,28 @@ extern bool     Hal_SemaphoreRelease(int32_t id);
 extern bool     Hal_SleepNs(uint64_t time_ns);
 extern uint64_t Hal_GetElapsedTimeInNs(void);
 
+static void report_final_results(void);
+static void harness_report_failure_and_exit(const char *format, ...);
+
 static int32_t harness_state_mutex = -1;
+
+static asn1SccOBCP_Parameter_Value_selection harness_expected_parameter_kind(asn1SccOBCP_Parameter_Type parameter_type)
+{
+   switch (parameter_type) {
+      case OBCP_Parameter_Type_integer_type:
+         return OBCP_Parameter_Value_int_value_PRESENT;
+      case OBCP_Parameter_Type_enumerated_type:
+         return OBCP_Parameter_Value_enum_value_PRESENT;
+      case OBCP_Parameter_Type_float_type:
+         return OBCP_Parameter_Value_float_value_PRESENT;
+      case OBCP_Parameter_Type_boolean_type:
+         return OBCP_Parameter_Value_bool_value_PRESENT;
+      default:
+         harness_report_failure_and_exit("Parameter store ERROR: unsupported parameter type=%d\n",
+                                         (int)parameter_type);
+         return OBCP_Parameter_Value_NONE;
+   }
+}
 
 static void harness_lock_state(void)
 {
@@ -37,8 +58,6 @@ static void harness_unlock_state(void)
       (void)Hal_SemaphoreRelease(harness_state_mutex);
    }
 }
-
-static void report_final_results(void);
 
 static void harness_error_printf(const char *format, ...)
 {
@@ -105,20 +124,29 @@ void harness_PI_get_parameter_value
        asn1SccOBCP_Parameter_Value *OUT_parameter_value)
 
 {
-   (void)IN_parameter_type;
+   const asn1SccOBCP_Parameter_Value_selection expected_kind =
+      harness_expected_parameter_kind(*IN_parameter_type);
 
    harness_lock_state();
    for (int i = 0; i < PARAM_STORE_SIZE; i++) {
       if (param_store[i].valid && param_store[i].id == *IN_id) {
+         if (param_store[i].value.kind != expected_kind) {
+            harness_unlock_state();
+            harness_report_failure_and_exit("Parameter store ERROR: parameter ID=%u requested as type=%d but stored kind=%d\n",
+                                            (unsigned)*IN_id,
+                                            (int)*IN_parameter_type,
+                                            (int)param_store[i].value.kind);
+            return;
+         }
          *OUT_parameter_value = param_store[i].value;
          harness_unlock_state();
          return;
       }
    }
    harness_unlock_state();
-   /* Parameter not found: return a default zero integer value */
-   OUT_parameter_value->kind        = OBCP_Parameter_Value_int_value_PRESENT;
-   OUT_parameter_value->u.int_value = 0;
+   harness_report_failure_and_exit("Parameter store ERROR: parameter ID=%u not found for requested type=%d\n",
+                                   (unsigned)*IN_id,
+                                   (int)*IN_parameter_type);
 }
 
 
@@ -137,6 +165,7 @@ static const char * const io_test_expected[] = {
 
 static size_t io_test_msg_index  = 0;
 static bool   io_write_test_active = false;
+static bool   io_write_test_all_ok = true;
 
 /* ----------------------------------------------------------------------- */
 
@@ -149,11 +178,13 @@ void harness_PI_output_message
    harness_lock_state();
    if (io_write_test_active) {
       if (io_test_msg_index >= IO_TEST_EXPECTED_COUNT) {
+         io_write_test_all_ok = false;
          harness_error_printf("IO test ERROR: unexpected extra message: \"%s\"\n",
                               *IN_text);
       } else if (strncmp(*IN_text,
                          io_test_expected[io_test_msg_index],
                          OBCP_TEXT_COMPARE_LEN) != 0) {
+         io_write_test_all_ok = false;
          harness_error_printf("IO test ERROR: message %zu: expected \"%s\", got \"%s\"\n",
                               io_test_msg_index,
                               io_test_expected[io_test_msg_index],
@@ -624,7 +655,7 @@ static asn1SccOBCP_Execution_Status get_status(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_get_obcp_status(&def->id, &status, &step_id, &ok);
    if (!ok) {
-      harness_error_printf("Could not get status for OBCP %.5s\n", def->id);
+      harness_report_failure_and_exit("Could not get status for OBCP %.5s\n", def->id);
    }
    return status;
 }
@@ -636,7 +667,7 @@ static asn1SccOBCP_Step_Id get_current_step(const Harness_ObcpDef *def)
    asn1SccT_Boolean ok = FALSE;
    harness_RI_get_obcp_status(&def->id, &status, &step_id, &ok);
    if (!ok) {
-      harness_error_printf("Could not get status for OBCP %.5s\n", def->id);
+      harness_report_failure_and_exit("Could not get status for OBCP %.5s\n", def->id);
    }
    return step_id;
 }
@@ -986,6 +1017,7 @@ void harness_PI_trigger(void)
          harness_lock_state();
          io_write_test_active = true;
          io_test_msg_index = 0;
+         io_write_test_all_ok = true;
          harness_unlock_state();
 
          if (!load_obcp(&OBCP_IOTEST)) return;
@@ -1005,17 +1037,20 @@ void harness_PI_trigger(void)
 
          if (sio == OBCP_Execution_Status_inactive) {
             size_t io_test_count;
+            bool io_test_ok;
 
             harness_lock_state();
             io_write_test_active = false;
             io_test_count = io_test_msg_index;
+            io_test_ok = io_write_test_all_ok;
             harness_unlock_state();
 
-            test_record(T_IO_WRITE, io_test_count == IO_TEST_EXPECTED_COUNT);
+            io_test_ok = io_test_ok && (io_test_count == IO_TEST_EXPECTED_COUNT);
+            test_record(T_IO_WRITE, io_test_ok);
             if (io_test_count != IO_TEST_EXPECTED_COUNT) {
                harness_error_printf("IO test ERROR: expected %zu messages, received %zu\n",
                                     IO_TEST_EXPECTED_COUNT, io_test_count);
-            } else {
+            } else if (io_test_ok) {
                printf("IO write tests finished — all %zu messages verified OK\n",
                       IO_TEST_EXPECTED_COUNT);
             }
