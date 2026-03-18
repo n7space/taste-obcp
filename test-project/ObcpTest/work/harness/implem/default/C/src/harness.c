@@ -368,6 +368,9 @@ static const Harness_ObcpDef OBCP_TEST3 = {
 
 static bool concurrency_test12_overlap_seen = false;
 static bool concurrency_test23_overlap_seen = false;
+static unsigned abort_test_wait_ticks = 0u;
+
+#define ABORTTEST_WAIT_TIMEOUT_TICKS  2u
 
 /* Gettime test OBCP: records the time before and after a known wait period,
  * stores the elapsed milliseconds and a pass/fail flag in the datapool.
@@ -1186,6 +1189,7 @@ void harness_PI_trigger(void)
          if (sa == OBCP_Execution_Status_active_and_running) {
             printf("Abort test: OBCP is active_and_running \u2014 sending abort\n");
             abort_obcp(&OBCP_ABORTTEST);
+            abort_test_wait_ticks = 0u;
             harness_set_phase(PHASE_ABORT_TEST_WAIT);
          }
          break;
@@ -1196,12 +1200,25 @@ void harness_PI_trigger(void)
        * stop test.
        * ----------------------------------------------------------------- */
       case PHASE_ABORT_TEST_WAIT: {
+         bool start_next_test = false;
          const asn1SccOBCP_Execution_Status sa = get_status(&OBCP_ABORTTEST);
          if (sa == OBCP_Execution_Status_inactive) {
             test_record(T_ABORT, true);
             printf("Abort test PASSED: OBCP transitioned to inactive after abort\n");
             unload_obcp(&OBCP_ABORTTEST);
-
+            start_next_test = true;
+         } else {
+            abort_test_wait_ticks++;
+            if (abort_test_wait_ticks >= ABORTTEST_WAIT_TIMEOUT_TICKS) {
+               test_record(T_ABORT, false);
+               printf("Abort test FAILED: OBCP did not reach inactive within %u trigger ticks after abort request\n",
+                      ABORTTEST_WAIT_TIMEOUT_TICKS);
+               // Abort does not work, so unloading makes no sense. We should have enough remaining slots.
+               start_next_test = true;
+            }
+         }
+         if (start_next_test)
+         {
             /* Initialise stop test datapool entries to zero */
             {
                asn1SccOBCP_Parameter_Value zero_val;
