@@ -15,8 +15,6 @@
 #define MS_PER_SECOND     (1000U)
 #define NS_PER_MS         (1000000ULL)
 
-#define DEBUG
-
 #if defined(DEBUG) && defined(__unix__) 
 #include <stdio.h>
 #define DEBUG_PRINT(...) printf(__VA_ARGS__)
@@ -34,7 +32,7 @@
 #endif
 
 #ifndef OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCP_WORKERS
-#define OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS (8)
+#define OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCP_WORKERS (8)
 #endif
 
 #ifndef OBCP_MICROPYTHON_HEAP_SIZE

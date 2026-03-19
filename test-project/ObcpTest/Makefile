@@ -29,8 +29,8 @@ DISTFILES=$(shell qmake ObcpTest.pro -o /tmp/null 2>&1)
 # enumeration change, but this does not affect the content of DataView.aadl
 ASN1_FILES=$(shell find ${DISTFILES} 2>/dev/null | egrep '\.asn$$|\.asn1$$' | grep -v system.asn)
 
-# For OBCP Load test
-export DEMO_USER_CFLAGS=-DOBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS=12
+# For OBCP Load test and OBCP Engine debug
+export DEMO_USER_CFLAGS=-DOBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS=12 -DDEBUG
 
 $(MPY_CROSS):
 	$(MAKE) -C $(N7OBCP_DIR) mpy-cross
