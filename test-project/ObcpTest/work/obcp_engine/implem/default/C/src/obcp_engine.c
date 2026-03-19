@@ -616,6 +616,7 @@ void obcp_engine_startup(void)
    obcpengine_init(&context);
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_abort_obcp(const asn1SccOBCP_Id *IN_id,
                                asn1SccT_Boolean *OUT_success)
 
@@ -638,6 +639,7 @@ void obcp_engine_PI_abort_obcp(const asn1SccOBCP_Id *IN_id,
 
 extern void obcp_engine_RI_activate_worker_To_PID(asn1SccPID dest_pid, const asn1SccT_Int32 *IN_obcp_index);
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_activate_obcp(const asn1SccOBCP_Id *IN_id,
                                   asn1SccT_Boolean *OUT_success)
 
@@ -675,6 +677,7 @@ void obcp_engine_PI_activate_obcp(const asn1SccOBCP_Id *IN_id,
    }
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_can_obcp_be_activated(const asn1SccOBCP_Id *IN_id,
                                           asn1SccT_Boolean *OUT_success)
 
@@ -696,6 +699,7 @@ void obcp_engine_PI_can_obcp_be_activated(const asn1SccOBCP_Id *IN_id,
    }
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_can_obcp_be_loaded(const asn1SccOBCP_Id *IN_id,
                                        asn1SccT_Boolean *OUT_success)
 
@@ -715,6 +719,7 @@ void obcp_engine_PI_can_obcp_be_loaded(const asn1SccOBCP_Id *IN_id,
    *OUT_success = TRUE;
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_get_obcp_status(const asn1SccOBCP_Id *IN_id,
                                     asn1SccOBCP_Execution_Status *OUT_execution_status,
                                     asn1SccOBCP_Step_Id *OUT_step_id,
@@ -734,6 +739,7 @@ void obcp_engine_PI_get_obcp_status(const asn1SccOBCP_Id *IN_id,
    *OUT_success = TRUE;
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
                               const asn1SccOBCP_Code *IN_code,
                               asn1SccT_Boolean *OUT_success)
@@ -769,6 +775,8 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
       }
    }
 }
+
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_receive_packet( const asn1SccOBCP_Channel_Id *IN_channel,
    const asn1SccOBCP_Packet *IN_packet,
    asn1SccT_Boolean *OUT_success)
@@ -800,12 +808,14 @@ void obcp_engine_PI_receive_packet( const asn1SccOBCP_Channel_Id *IN_channel,
    *OUT_success = TRUE;
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_start_obcp_engine(void)
 {
    clear_engine();
    obcp_engine_RI_initiate_registration();
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *IN_id,
    const asn1SccOBCP_Step_Id *IN_step_id,
    asn1SccT_Boolean *OUT_success)
@@ -827,6 +837,7 @@ void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *IN_id,
    }
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 /* This function blocks until all OBCPS are inactive by design */
 void obcp_engine_PI_stop_obcp_engine(void)
 {
@@ -869,6 +880,7 @@ void obcp_engine_PI_stop_obcp_engine(void)
    clear_engine();
 }
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
                                 asn1SccT_Boolean *OUT_success)
 
@@ -897,6 +909,10 @@ void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
 
 extern asn1SccPID obcp_engine_do_work_get_sender();
 
+/* Unprotected PI (interfaceview.xml kind="Unprotected"): NOT serialised by the component mutex; concurrent invocations are possible. */
+/* Function should be called by a worker, in it's own thread, in response to a obcp_engine_RI_activate_worker call
+   After completing it, the worker, in the same thread, shall call obcp_engine_PI_release_worker.
+   By design, there are multiple workers calling this function concurrently, each with a different OBCP and worker ID */
 void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
 {
    const uint32_t idx = (uint32_t)(*obcp_index);
@@ -968,6 +984,7 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
 
 extern asn1SccPID obcp_engine_release_worker_get_sender();
 
+/* Protected PI (interfaceview.xml kind="Protected"): serialised by the obcp_engine component mutex. */
 void obcp_engine_PI_release_worker(void)
 {
    const asn1SccPID pid = obcp_engine_release_worker_get_sender();
@@ -981,6 +998,10 @@ void obcp_engine_PI_release_worker(void)
 
 extern asn1SccPID obcp_engine_register_worker_get_sender();
 
+/* Unprotected PI (interfaceview.xml kind="Unprotected"): NOT serialised by the component mutex; concurrent invocations are possible. */
+/* Function is unprotected, as it is used as a callback in response to obcp_engine_RI_initiate_registration
+   which is called in obcp_engine_PI_start_obcp_engine, itself protected by the component-wide mutex,
+   which is non-reentrant. */
 void obcp_engine_PI_register_worker()
 {
    if (workers_count >= OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCP_WORKERS)
