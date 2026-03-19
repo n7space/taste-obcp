@@ -9,8 +9,10 @@
 */
 #include "obcp_engine.h"
 #include "obcp_engine_thread_local.h"
+#include "persistentcode.h"
 #include <string.h>
 #include <Hal.h>
+#include <assert.h>
 
 #define MS_PER_SECOND     (1000U)
 #define NS_PER_MS         (1000000ULL)
@@ -50,7 +52,6 @@
 #endif
 
 #define OBCP_MPY_MAGIC_NUMBER          (0x4dU)
-#define OBCP_MPY_VERSION_MAJOR_NUMBER  (0x06U)
 
 /* Polling interval used when a finite receive timeout is requested (10 ms). */
 #define PACKET_POLL_INTERVAL_NS  (10000000ULL)
@@ -93,7 +94,7 @@ typedef struct
    uint8_t packet_buffer[OBCP_PACKET_BUFFER_SIZE];
 } OBCP_Worker;
 
-static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS] = {};
+static OBCP_Worker workers[OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCP_WORKERS] = {};
 static uint32_t workers_count = 0;
 
 /* ===================================================================
@@ -122,7 +123,7 @@ static bool obcp_code_is_precompiled_mpy(const asn1SccOBCP_Code *code)
 {
    return code->nCount >= 2 &&
           (uint8_t)code->arr[0] == OBCP_MPY_MAGIC_NUMBER &&
-          (uint8_t)code->arr[1] == OBCP_MPY_VERSION_MAJOR_NUMBER;
+          (uint8_t)code->arr[1] == MPY_VERSION;
 }
 
 static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
@@ -137,15 +138,26 @@ static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
    return -1;
 }
 
+static inline void clear_obcp(const uint32_t id)
+{
+   obcps[id].loaded = false;
+   obcps[id].code.nCount = 0;
+   obcps[id].status = OBCP_Execution_Status_inactive;
+   obcps[id].current_step = OBCP_NO_STEP;
+   obcps[id].abort_requested = false;
+   obcps[id].stop_requested = false;
+   obcps[id].stop_at_step = 0;
+}
+
 static inline void clear_engine()
 {
    obcps_count = 0;
    for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; i++)
    {
-      obcps[i].loaded = 0;
+      clear_obcp(i);
    }
    workers_count = 0;
-   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS; i++)
+   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCP_WORKERS; i++)
    {
       workers[i].registered = 0;
       workers[i].used = 0;
@@ -224,8 +236,9 @@ static bool wrapper_output_message(const char *text, size_t length)
 {
    check_abort();
    asn1SccOBCP_Text msg;
-   /* Ensure we don't overflow the buffer (max 32 chars + null terminator) */
-   size_t copy_len = (length < 32) ? length : 32;
+   const uint32_t max_length = (uint32_t)(sizeof(asn1SccOBCP_Text) - 1); // -1 accounts for null terminator
+   /* Ensure we don't overflow the buffer */
+   size_t copy_len = (length < max_length) ? length : max_length;
    memcpy(msg, text, copy_len);
    msg[copy_len] = '\0';
    obcp_engine_RI_output_message(&msg);
@@ -438,6 +451,9 @@ static bool wrapper_send_packet(const uint32_t channel,
    asn1SccT_Boolean       success = FALSE;
 
    uint32_t copy_len = length;
+   assert(copy_len <= (uint32_t)sizeof(packet.arr));
+   // Guard against an unwanted crash, as a truncated packet is preferrable to app death.
+   // Incorrect length should be found during testing using the assert.
    if (copy_len > (uint32_t)sizeof(packet.arr))
    {
       copy_len = (uint32_t)sizeof(packet.arr);
@@ -451,13 +467,8 @@ static bool wrapper_send_packet(const uint32_t channel,
 
 /* Receive a packet from the inlet buffer.
  *
- * timeout_milliseconds == 0                    : non-blocking check.
- * timeout_milliseconds == OBCP_RECEIVE_TIMEOUT_BLOCKING : block indefinitely
- *                          using the channel semaphore; unblocked via
- *                          Hal_SemaphoreRelease in obcp_engine_PI_receive_packet.
- * 0 < timeout_milliseconds < OBCP_RECEIVE_TIMEOUT_BLOCKING : poll with
- *                          Hal_SleepNs until a packet arrives or the
- *                          deadline is exceeded.
+ * timeout_milliseconds == 0 : non-blocking check.
+ * 0 < timeout_milliseconds : poll with Hal_SleepNs until a packet arrives or the deadline is exceeded.
  */
 static bool wrapper_receive_packet(const uint32_t channel,
                                    uint32_t *length,
@@ -478,15 +489,6 @@ static bool wrapper_receive_packet(const uint32_t channel,
       if (!ch->occupied)
       {
          return false;
-      }
-   }
-   else if (timeout_milliseconds == OBCP_RECEIVE_TIMEOUT_BLOCKING)
-   {
-      /* Blocking wait: poll until the sender deposits a packet. */
-      while (!ch->occupied)
-      {
-         check_abort();
-         Hal_SleepNs(PACKET_POLL_INTERVAL_NS);
       }
    }
    else
@@ -515,9 +517,10 @@ static bool wrapper_receive_packet(const uint32_t channel,
 
    /* Consume the buffered packet. */
    uint32_t copy_len = (uint32_t)ch->packet.nCount;
-   if (copy_len > *length)
+   if (*length < copy_len)
    {
-      copy_len = *length;
+      mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Receive buffer too small"));
+      return false;
    }
    memcpy(data, ch->packet.arr, copy_len);
    *length = copy_len;
@@ -725,10 +728,7 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
       if (!obcps[id].loaded)
       {
          memcpy(obcps[id].id, *IN_id, sizeof(asn1SccOBCP_Id));
-         for (int i = 0; i < IN_code->nCount; i++)
-         {
-            obcps[id].code.arr[i] = IN_code->arr[i];
-         }
+         memcpy(obcps[id].code.arr, IN_code->arr, IN_code->nCount);
          obcps[id].code.nCount = IN_code->nCount;
          obcps[id].status = OBCP_Execution_Status_inactive;
          obcps[id].current_step = OBCP_NO_STEP;
@@ -830,22 +830,6 @@ void obcp_engine_PI_stop_obcp_engine(void)
       }
    } while (waiting_for_obcps);
 
-   for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
-   {
-      if (!obcps[i].loaded)
-      {
-         continue;
-      }
-
-      obcps[i].loaded = false;
-      obcps[i].code.nCount = 0;
-      obcps[i].status = OBCP_Execution_Status_inactive;
-      obcps[i].current_step = OBCP_NO_STEP;
-      obcps[i].abort_requested = false;
-      obcps[i].stop_requested = false;
-      obcps[i].stop_at_step = 0;
-   }
-
    clear_engine();
 }
 
@@ -866,8 +850,8 @@ void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
       return;
    }
 
-   obcps[index].loaded = false;
-   obcps[index].code.nCount = 0;
+   clear_obcp(index);
+
    --obcps_count;
    *OUT_success = TRUE;
 }
@@ -878,25 +862,25 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
 {
    const uint32_t idx = (uint32_t)(*obcp_index);
    const asn1SccPID pid = obcp_engine_do_work_get_sender();
-
-   if (idx >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS || !obcps[idx].loaded)
-   {
-      return;
-   }
-
-   obcps[idx].status = OBCP_Execution_Status_active_and_running;
    const int32_t worker_id = get_worker_id_by_pid(pid);
-
-   /* Bind this thread's TLS slot on every do_work entry.  On Linux this is a
-    * no-op; on RTEMS/FreeRTOS it is idempotent after the first call. */
-   obcp_engine_tls_bind();
-
    if (worker_id < 0)
    {
       DEBUG_PRINT("DO WORK: unknown worker PID %d — aborting\n", pid);
       obcps[idx].status = OBCP_Execution_Status_inactive;
       return;
    }
+
+   if (idx >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS || !obcps[idx].loaded)
+   {
+      workers[worker_id].used = false;
+      return;
+   }
+
+   /* Bind this thread's TLS slot on every do_work entry.  On Linux this is a
+    * no-op; on RTEMS/FreeRTOS it is idempotent after the first call. */
+   obcp_engine_tls_bind();
+   obcps[idx].status = OBCP_Execution_Status_active_and_running;
+   
 
    DEBUG_PRINT("DO WORK Worker[%d] PID %d\n", worker_id, pid);
 
@@ -947,7 +931,7 @@ extern asn1SccPID obcp_engine_register_worker_get_sender();
 
 void obcp_engine_PI_register_worker()
 {
-   if (workers_count >= OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCPS_WORKERS)
+   if (workers_count >= OBCP_MAXIMUM_NUMBER_OF_REGISTERED_OBCP_WORKERS)
    {
       return;
    }
