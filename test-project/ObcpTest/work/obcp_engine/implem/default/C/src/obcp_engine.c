@@ -62,7 +62,12 @@
 
 typedef struct
 {
-   bool loaded;
+   /* Written by Protected PIs (load_obcp, clear_obcp) and read by the
+    * Unprotected PI_do_work.  Must be atomic_bool so that the release store
+    * in PI_load_obcp (after writing code.arr/nCount) pairs with the acquire
+    * load in PI_do_work, formally making the code buffer visible to the
+    * worker thread without relying solely on the external mutex. */
+   atomic_bool loaded;
    asn1SccOBCP_Id id;
    asn1SccOBCP_Code code;
    /* Cross-thread fields written by PI functions (under the external mutex) and
@@ -149,7 +154,10 @@ static inline int32_t get_worker_id_by_pid(const asn1SccPID pid)
 
 static inline void clear_obcp(const uint32_t id)
 {
-   obcps[id].loaded = false;
+   /* Relaxed: clear_obcp is only called while the engine mutex is held (or
+    * during single-threaded startup) and no concurrent worker can observe
+    * the slot after it has been cleared. */
+   atomic_store_explicit(&obcps[id].loaded, false, memory_order_relaxed);
    obcps[id].code.nCount = 0;
    /* Relaxed ordering is sufficient here: clear_obcp is only called while the
     * engine mutex is held (or during single-threaded startup), so no concurrent
@@ -231,12 +239,17 @@ static bool wrapper_endstep(const uint32_t id, const bool success)
    /* Release: ensures PI_get_obcp_status (acquire) sees OBCP_NO_STEP. */
    atomic_store_explicit(&obcps[obcp_idx].current_step, OBCP_NO_STEP, memory_order_release);
    /* Acquire on stop_requested: pairs with the release store in PI_stop_obcp,
-    * guaranteeing that stop_at_step is visible before we read it below. */
-   if (atomic_load_explicit(&obcps[obcp_idx].stop_requested, memory_order_acquire) &&
-       (atomic_load_explicit(&obcps[obcp_idx].stop_at_step, memory_order_relaxed) == 0u ||
-        atomic_load_explicit(&obcps[obcp_idx].stop_at_step, memory_order_relaxed) == id))
+    * guaranteeing that stop_at_step is visible before we read it below.
+    * stop_at_step is read once into a local variable to avoid a TOCTOU
+    * race: PI_stop_obcp (Protected) can overwrite stop_at_step between two
+    * separate relaxed loads, producing inconsistent stop-at logic. */
+   if (atomic_load_explicit(&obcps[obcp_idx].stop_requested, memory_order_acquire))
    {
-      mp_raise_msg(&mp_type_Exception, MP_ERROR_TEXT("OBCP stopped"));
+      const uint32_t step_to_stop_at = atomic_load_explicit(&obcps[obcp_idx].stop_at_step, memory_order_relaxed);
+      if (step_to_stop_at == 0u || step_to_stop_at == id)
+      {
+         mp_raise_msg(&mp_type_Exception, MP_ERROR_TEXT("OBCP stopped"));
+      }
    }
    return true;
 }
@@ -568,7 +581,9 @@ static int32_t getObcpIndex(const asn1SccOBCP_Id id)
 {
    for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
    {
-      if (obcps[i].loaded && isObcpIdEqual(obcps[i].id, id))
+      /* Relaxed: getObcpIndex is only called from Protected PIs; the
+       * component mutex provides ordering among all Protected callers. */
+      if (atomic_load_explicit(&obcps[i].loaded, memory_order_relaxed) && isObcpIdEqual(obcps[i].id, id))
       {
          return (int32_t)i;
       }
@@ -756,7 +771,8 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
 
    for (uint32_t id = 0; id < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++id)
    {
-      if (!obcps[id].loaded)
+      /* Relaxed: under the Protected mutex; no concurrent worker can see this slot yet. */
+      if (!atomic_load_explicit(&obcps[id].loaded, memory_order_relaxed))
       {
          memcpy(obcps[id].id, *IN_id, sizeof(asn1SccOBCP_Id));
          memcpy(obcps[id].code.arr, IN_code->arr, IN_code->nCount);
@@ -768,7 +784,11 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
          atomic_store_explicit(&obcps[id].abort_requested, false, memory_order_relaxed);
          atomic_store_explicit(&obcps[id].stop_requested, false, memory_order_relaxed);
          atomic_store_explicit(&obcps[id].stop_at_step, 0u, memory_order_relaxed);
-         obcps[id].loaded = true;
+         /* Release: pairs with the acquire load in PI_do_work.  All preceding
+          * writes (code.arr, code.nCount, id, and the atomic flag resets)
+          * are formally ordered before this store, guaranteeing that the
+          * worker sees the complete code buffer when it reads loaded == true. */
+         atomic_store_explicit(&obcps[id].loaded, true, memory_order_release);
          ++obcps_count;
          *OUT_success = TRUE;
          return;
@@ -845,7 +865,8 @@ void obcp_engine_PI_stop_obcp_engine(void)
 
    for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
    {
-      if (!obcps[i].loaded)
+      /* Relaxed: PI_stop_obcp_engine holds the Protected mutex. */
+      if (!atomic_load_explicit(&obcps[i].loaded, memory_order_relaxed))
       {
          continue;
       }
@@ -864,7 +885,8 @@ void obcp_engine_PI_stop_obcp_engine(void)
       {
          /* Acquire: pairs with the release store on status in PI_do_work,
           * ensuring the worker's full cleanup is visible before we exit. */
-         if (obcps[i].loaded && atomic_load_explicit(&obcps[i].status, memory_order_acquire) != OBCP_Execution_Status_inactive)
+         /* Relaxed on loaded: under the Protected mutex. */
+         if (atomic_load_explicit(&obcps[i].loaded, memory_order_relaxed) && atomic_load_explicit(&obcps[i].status, memory_order_acquire) != OBCP_Execution_Status_inactive)
          {
             waiting_for_obcps = true;
             break;
@@ -919,7 +941,9 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
    const asn1SccPID pid = obcp_engine_do_work_get_sender();
    const int32_t worker_id = get_worker_id_by_pid(pid);
 
-   if (idx >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS || !obcps[idx].loaded)
+   /* Acquire: pairs with the release store in PI_load_obcp, ensuring that
+    * code.arr and code.nCount are visible once loaded == true is observed. */
+   if (idx >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS || !atomic_load_explicit(&obcps[idx].loaded, memory_order_acquire))
    {
       if (worker_id >= 0)
       {
