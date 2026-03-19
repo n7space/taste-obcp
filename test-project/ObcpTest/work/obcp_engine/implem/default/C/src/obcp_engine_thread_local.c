@@ -2,6 +2,8 @@
 
 #if defined(GENERIC_LINUX_TARGET) || defined(__linux__)
 
+#include <assert.h>
+
 static __thread uintptr_t tls_values[obcp_thread_local_value_index_max];
 
 void obcp_engine_tls_init(void)
@@ -16,11 +18,13 @@ void obcp_engine_tls_bind(void)
 
 uintptr_t obcp_engine_tls_get(uint32_t index)
 {
+   assert(index < obcp_thread_local_value_index_max);
    return tls_values[index];
 }
 
 void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 {
+   assert(index < obcp_thread_local_value_index_max);
    tls_values[index] = value;
 }
 
@@ -88,11 +92,19 @@ void obcp_engine_tls_bind(void)
 
 uintptr_t obcp_engine_tls_get(uint32_t index)
 {
+   if (index >= obcp_thread_local_value_index_max)
+   {
+      rtems_fatal(RTEMS_FATAL_SOURCE_APPLICATION, 2u);
+   }
    return tls_current()[index];
 }
 
 void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 {
+   if (index >= obcp_thread_local_value_index_max)
+   {
+      rtems_fatal(RTEMS_FATAL_SOURCE_APPLICATION, 2u);
+   }
    tls_current()[index] = value;
 }
 
@@ -165,11 +177,21 @@ void obcp_engine_tls_bind(void)
 
 uintptr_t obcp_engine_tls_get(uint32_t index)
 {
+   configASSERT(index < obcp_thread_local_value_index_max);
+   if (index >= obcp_thread_local_value_index_max)
+   {
+      for (;;) {} /* unreachable safety net if configASSERT is a no-op in release */
+   }
    return tls_current()[index];
 }
 
 void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 {
+   configASSERT(index < obcp_thread_local_value_index_max);
+   if (index >= obcp_thread_local_value_index_max)
+   {
+      for (;;) {} /* unreachable safety net if configASSERT is a no-op in release */
+   }
    tls_current()[index] = value;
 }
 
