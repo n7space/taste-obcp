@@ -44,10 +44,19 @@ void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 
 #include <rtems.h>
 #include <stdatomic.h>
+#include <string.h>
+
+/* Compile-time guard: the TCB argument field is uint32_t; uintptr_t must be
+ * the same width on this target or the pool pointer will be silently truncated. */
+_Static_assert(sizeof(uintptr_t) == sizeof(uint32_t),
+               "uintptr_t must be 32 bits; the RTEMS TCB argument field is uint32_t");
 
 /* Internal storage pool, zero-initialised at program start. */
 static uintptr_t tls_pool[OBCP_ENGINE_TLS_MAX_THREADS][obcp_thread_local_value_index_max];
 static atomic_uint tls_pool_used = 0;
+
+/* Registry of TCBs that have been bound, used by tls_init() to clear them on re-init. */
+static Thread_Control *tls_bound_tasks[OBCP_ENGINE_TLS_MAX_THREADS];
 
 static inline uintptr_t *tls_current(void)
 {
@@ -63,7 +72,20 @@ static inline uintptr_t *tls_current(void)
 
 void obcp_engine_tls_init(void)
 {
-   /* Reset pool counter — workers will re-bind on their next do_work call. */
+   uint32_t i;
+   /* Clear the TCB slot of every previously bound task so that tasks will
+    * re-bind on their next do_work call, preventing slot re-use aliasing.
+    * Caller must ensure no worker thread is concurrently in tls_bind(). */
+   for (i = 0; i < OBCP_ENGINE_TLS_MAX_THREADS; i++)
+   {
+      if (tls_bound_tasks[i] != NULL)
+      {
+         tls_bound_tasks[i]->Start.Entry.Kinds.Numeric.argument = 0u;
+         tls_bound_tasks[i] = NULL;
+      }
+   }
+   /* Zero the pool so stale values are not visible to newly bound tasks. */
+   memset(tls_pool, 0, sizeof(tls_pool));
    tls_pool_used = 0;
 }
 
@@ -86,6 +108,8 @@ void obcp_engine_tls_bind(void)
       rtems_fatal(RTEMS_FATAL_SOURCE_APPLICATION, 1u);
    }
 
+   /* Record this TCB in the registry so tls_init() can unregister it later. */
+   tls_bound_tasks[slot] = _Thread_Get_executing();
    _Thread_Get_executing()->Start.Entry.Kinds.Numeric.argument =
          (uint32_t)(uintptr_t)tls_pool[slot];
 }
@@ -123,6 +147,7 @@ void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 #include "FreeRTOS.h"
 #include "task.h"
 #include <stdatomic.h>
+#include <string.h>
 
 #ifndef OBCP_FREERTOS_TLS_SLOT_INDEX
 #define OBCP_FREERTOS_TLS_SLOT_INDEX (0)
@@ -131,6 +156,9 @@ void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 /* Internal storage pool, zero-initialised at program start. */
 static uintptr_t tls_pool[OBCP_ENGINE_TLS_MAX_THREADS][obcp_thread_local_value_index_max];
 static atomic_uint tls_pool_used = 0;
+
+/* Registry of task handles that have been bound, used by tls_init() to clear them on re-init. */
+static TaskHandle_t tls_bound_tasks[OBCP_ENGINE_TLS_MAX_THREADS];
 
 static inline uintptr_t *tls_current(void)
 {
@@ -147,7 +175,21 @@ static inline uintptr_t *tls_current(void)
 
 void obcp_engine_tls_init(void)
 {
-   /* Reset pool counter — workers will re-bind on their next do_work call. */
+   uint32_t i;
+   /* Clear the TLS slot of every previously bound task so that tasks will
+    * re-bind on their next do_work call, preventing slot re-use aliasing.
+    * Caller must ensure no worker thread is concurrently in tls_bind(). */
+   for (i = 0; i < OBCP_ENGINE_TLS_MAX_THREADS; i++)
+   {
+      if (tls_bound_tasks[i] != NULL)
+      {
+         vTaskSetThreadLocalStoragePointer(tls_bound_tasks[i],
+                                          OBCP_FREERTOS_TLS_SLOT_INDEX, NULL);
+         tls_bound_tasks[i] = NULL;
+      }
+   }
+   /* Zero the pool so stale values are not visible to newly bound tasks. */
+   memset(tls_pool, 0, sizeof(tls_pool));
    tls_pool_used = 0;
 }
 
@@ -171,6 +213,8 @@ void obcp_engine_tls_bind(void)
       for (;;) {} /* unreachable safety net if configASSERT is a no-op in release */
    }
 
+   /* Record this task handle in the registry so tls_init() can unregister it later. */
+   tls_bound_tasks[slot] = xTaskGetCurrentTaskHandle();
    vTaskSetThreadLocalStoragePointer(NULL, OBCP_FREERTOS_TLS_SLOT_INDEX,
                                      (void *)tls_pool[slot]);
 }
