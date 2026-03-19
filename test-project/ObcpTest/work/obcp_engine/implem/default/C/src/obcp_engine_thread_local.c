@@ -1,5 +1,21 @@
 #include "obcp_engine_thread_local.h"
 
+/* General assumptions:
+   This is supporting code for obcp_engine.c, providing Thread Local Storage on the following platforms:
+   - Linux,
+   - RTEMS 6,
+   - FreeRTOS (generic).
+   The target HW is x86-64 and ARM Cortex-M.
+   For RTEMS 6, non-public API is used as POSIX API is not available in ESA's SMP QDP version.
+
+   The code is used only by obcp_engine.c, and thus the following assumptions hold true:
+   - tls_init() is called and finished before any tls_bind()
+
+*/
+
+_Static_assert((int)obcp_thread_local_value_index_max > 0,
+               "obcp_thread_local_value_index_max must be at least 1");
+
 #if defined(GENERIC_LINUX_TARGET) || defined(__linux__)
 
 #include <assert.h>
@@ -142,7 +158,7 @@ void obcp_engine_tls_set(uint32_t index, uintptr_t value)
  * Requires configNUM_THREAD_LOCAL_STORAGE_POINTERS > OBCP_FREERTOS_TLS_SLOT_INDEX
  * in FreeRTOSConfig.h.
  * ========================================================================= */
-#else
+#elif defined(GENERIC_FREERTOS_TARGET)
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -151,6 +167,10 @@ void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 
 #ifndef OBCP_FREERTOS_TLS_SLOT_INDEX
 #define OBCP_FREERTOS_TLS_SLOT_INDEX (0)
+#endif
+
+#if configNUM_THREAD_LOCAL_STORAGE_POINTERS <= OBCP_FREERTOS_TLS_SLOT_INDEX
+#error "FreeRTOSConfig.h must define configNUM_THREAD_LOCAL_STORAGE_POINTERS > OBCP_FREERTOS_TLS_SLOT_INDEX"
 #endif
 
 /* Internal storage pool, zero-initialised at program start. */
@@ -239,4 +259,6 @@ void obcp_engine_tls_set(uint32_t index, uintptr_t value)
    tls_current()[index] = value;
 }
 
+#else
+#error "Unsupported target: define GENERIC_LINUX_TARGET, RTEMS_5, RTEMS_6, or GENERIC_FREERTOS_TARGET"
 #endif /* platform selection */
