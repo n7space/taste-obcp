@@ -24,7 +24,7 @@ OBCP-Text ::= IA5String(SIZE(0..32)) -- Maximum size shall be adjusted by the us
 OBCP-Execution-Status ::= ENUMERATED {
     inactive (0),
     active-and-running (1),
-    active-and-held = (2)
+    active-and-held (2)
 }
 
 OBCP-Observability-Level ::= ENUMERATED {
