@@ -47,8 +47,14 @@ static atomic_uint tls_pool_used = 0;
 
 static inline uintptr_t *tls_current(void)
 {
-   return (uintptr_t *)(uintptr_t)
+   uintptr_t *ptr = (uintptr_t *)(uintptr_t)
          _Thread_Get_executing()->Start.Entry.Kinds.Numeric.argument;
+   if (ptr == NULL)
+   {
+      /* tls_bind() was never called or the pool was exhausted — unrecoverable. */
+      rtems_fatal(RTEMS_FATAL_SOURCE_APPLICATION, 0u);
+   }
+   return ptr;
 }
 
 void obcp_engine_tls_init(void)
@@ -113,8 +119,15 @@ static atomic_uint tls_pool_used = 0;
 
 static inline uintptr_t *tls_current(void)
 {
-   return (uintptr_t *)pvTaskGetThreadLocalStoragePointer(
+   uintptr_t *ptr = (uintptr_t *)pvTaskGetThreadLocalStoragePointer(
          NULL, OBCP_FREERTOS_TLS_SLOT_INDEX);
+   if (ptr == NULL)
+   {
+      /* tls_bind() was never called or the pool was exhausted — unrecoverable. */
+      configASSERT(ptr != NULL);
+      for (;;) {} /* unreachable safety net if configASSERT is a no-op in release */
+   }
+   return ptr;
 }
 
 void obcp_engine_tls_init(void)
