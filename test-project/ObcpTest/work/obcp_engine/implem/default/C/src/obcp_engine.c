@@ -13,11 +13,12 @@
 #include <string.h>
 #include <Hal.h>
 #include <assert.h>
+#include <stdatomic.h>
 
 #define MS_PER_SECOND     (1000U)
 #define NS_PER_MS         (1000000ULL)
 
-#if defined(DEBUG) && defined(__unix__) 
+#if defined(DEBUG) && defined(__unix__)
 #include <stdio.h>
 #define DEBUG_PRINT(...) printf(__VA_ARGS__)
 #else
@@ -56,10 +57,6 @@
 /* Polling interval used when a finite receive timeout is requested (10 ms). */
 #define PACKET_POLL_INTERVAL_NS  (10000000ULL)
 
-/* Sentinel: pass as timeout_ms to obcp_receive_packet for an indefinite
- * blocking wait (unblocked by an incoming packet via the channel semaphore). */
-#define OBCP_RECEIVE_TIMEOUT_BLOCKING  (~(uint32_t)0U)
-
 /* Sentinel stored in current_step when no step is in progress. */
 #define OBCP_NO_STEP  (~(uint32_t)0U)
 
@@ -68,11 +65,11 @@ typedef struct
    bool loaded;
    asn1SccOBCP_Id id;
    asn1SccOBCP_Code code;
-   asn1SccOBCP_Execution_Status status;
-   uint32_t current_step;    /* OBCP_NO_STEP when no step is in progress */
-   bool     abort_requested; /* set to true by PI_abort_obcp while active */
-   bool     stop_requested;  /* set to true by PI_stop_obcp while active */
-   asn1SccOBCP_Step_Id stop_at_step; /* 0 = stop at first endstep, else stop at matching id */
+   volatile asn1SccOBCP_Execution_Status status;
+   volatile uint32_t current_step;    /* OBCP_NO_STEP when no step is in progress */
+   volatile bool     abort_requested; /* set to true by PI_abort_obcp while active */
+   volatile bool     stop_requested;  /* set to true by PI_stop_obcp while active */
+   volatile asn1SccOBCP_Step_Id stop_at_step; /* 0 = stop at first endstep, else stop at matching id */
 } OBCP_Procedure;
 
 static OBCP_Procedure obcps[OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS] = {};
@@ -100,12 +97,12 @@ static uint32_t workers_count = 0;
 /* ===================================================================
  * Per-channel packet inlet buffer
  * ===================================================================
- * Each channel holds at most one packet at a time. 
+ * Each channel holds at most one packet at a time.
  * TODO: this can be significantly improved if Hal provides
  * a better semaphore implementation with:
  * -timeouts
  * -initialization value (so a true semaphore instead of a mutex)
- * -release being a defined behaviour in a non-owner thread 
+ * -release being a defined behaviour in a non-owner thread
  *    (true semaphore instead of a mutes)\
  * Optional signalling via events provided via Hal would be a help.
  * The current implementation is to demonstrate the working principle.
@@ -114,7 +111,12 @@ static uint32_t workers_count = 0;
 typedef struct
 {
    asn1SccOBCP_Packet packet;
-   volatile bool      occupied;
+   /* Synchronises producer (PI_receive_packet) and consumer (wrapper_receive_packet).
+    * Producer: store payload, then atomic_store(..., memory_order_release).
+    * Consumer: atomic_load(..., memory_order_acquire), then read payload.
+    * This acquire-release pair provides the necessary memory barrier on both
+    * x86 (compiler fence) and ARM (stlr/ldar or stl/lda instructions). */
+   atomic_bool occupied;
 } OBCP_PacketChannel;
 
 static OBCP_PacketChannel packet_channels[OBCP_PACKET_CHANNEL_COUNT];
@@ -413,7 +415,7 @@ static bool wrapper_is_packet_available(const uint32_t channel)
    {
       return false;
    }
-   return packet_channels[channel].occupied;
+   return atomic_load_explicit(&packet_channels[channel].occupied, memory_order_acquire);
 }
 
 /* Returns the index of the first channel that currently has a packet,
@@ -423,7 +425,7 @@ static bool wrapper_get_channel_with_packet_available(uint32_t *channel)
    check_abort();
    for (uint32_t i = 0; i < OBCP_PACKET_CHANNEL_COUNT; ++i)
    {
-      if (packet_channels[i].occupied)
+      if (atomic_load_explicit(&packet_channels[i].occupied, memory_order_acquire))
       {
          *channel = i;
          return true;
@@ -486,7 +488,7 @@ static bool wrapper_receive_packet(const uint32_t channel,
    if (timeout_milliseconds == 0U)
    {
       /* Non-blocking: return immediately if no packet is present. */
-      if (!ch->occupied)
+      if (!atomic_load_explicit(&ch->occupied, memory_order_acquire))
       {
          return false;
       }
@@ -498,7 +500,7 @@ static bool wrapper_receive_packet(const uint32_t channel,
           Hal_GetElapsedTimeInNs() +
           (uint64_t)timeout_milliseconds * NS_PER_MS;
 
-      while (!ch->occupied)
+      while (!atomic_load_explicit(&ch->occupied, memory_order_acquire))
       {
          check_abort();
          if (Hal_GetElapsedTimeInNs() >= deadline_ns)
@@ -509,22 +511,22 @@ static bool wrapper_receive_packet(const uint32_t channel,
       }
    }
 
-   if (!ch->occupied)
-   {
-      /* Spurious wakeup — no packet available. */
-      return false;
-   }
-
    /* Consume the buffered packet. */
    uint32_t copy_len = (uint32_t)ch->packet.nCount;
    if (*length < copy_len)
    {
+      /* Release the channel before raising: without this the channel would
+       * remain permanently occupied after the exception unwinds the stack. */
+      atomic_store_explicit(&ch->occupied, false, memory_order_release);
       mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Receive buffer too small"));
       return false;
    }
    memcpy(data, ch->packet.arr, copy_len);
    *length = copy_len;
-   ch->occupied = false;
+   /* Release the channel only after the payload has been fully consumed.
+    * The release store pairs with the acquire load in PI_receive_packet,
+    * ensuring the slot is not reused before we finish reading. */
+   atomic_store_explicit(&ch->occupied, false, memory_order_release);
 
    return true;
 }
@@ -564,7 +566,7 @@ void obcp_engine_startup(void)
    /* Initialise per-channel packet inlet buffers and their semaphores. */
    for (uint32_t i = 0; i < OBCP_PACKET_CHANNEL_COUNT; ++i)
    {
-      packet_channels[i].occupied = false;
+      atomic_init(&packet_channels[i].occupied, false);
    }
 
    /* Initialize obcpengine with callbacks to TASTE RI functions */
@@ -756,18 +758,21 @@ void obcp_engine_PI_receive_packet( const asn1SccOBCP_Channel_Id *IN_channel,
    OBCP_PacketChannel *ch = &packet_channels[ch_idx];
 
    /* Do not wait if busy, just return; a busy loop can be implemented
-      on the user-side. Just blocking here would block ALL reception 
+      on the user-side. Just blocking here would block ALL reception
       channels, which is undesired */
-   if (ch->occupied)
+   if (atomic_load_explicit(&ch->occupied, memory_order_acquire))
    {
       *OUT_success = FALSE;
       return;
    }
 
+   /* Write the payload before publishing the flag. The release store
+    * pairs with every acquire load in the wrapper functions, guaranteeing
+    * that the complete packet is visible before the consumer sees
+    * occupied == true (required on ARM; a compiler fence on x86). */
+   ch->packet = *IN_packet;
+   atomic_store_explicit(&ch->occupied, true, memory_order_release);
    *OUT_success = TRUE;
-   /* Store the incoming packet (1-packet-deep inlet buffer per channel). */
-   ch->packet   = *IN_packet;
-   ch->occupied = true;
 }
 
 void obcp_engine_PI_start_obcp_engine(void)
@@ -851,7 +856,7 @@ void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
    }
 
    clear_obcp(index);
-
+   assert(obcps_count > 0); // Guard against state inconsistency
    --obcps_count;
    *OUT_success = TRUE;
 }
@@ -863,6 +868,17 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
    const uint32_t idx = (uint32_t)(*obcp_index);
    const asn1SccPID pid = obcp_engine_do_work_get_sender();
    const int32_t worker_id = get_worker_id_by_pid(pid);
+
+   if (idx >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS || !obcps[idx].loaded)
+   {
+      if (worker_id >= 0)
+      {
+         // If worker ID is correct, release it.
+         workers[worker_id].used = false;
+      }
+      return;
+   }
+
    if (worker_id < 0)
    {
       DEBUG_PRINT("DO WORK: unknown worker PID %d — aborting\n", pid);
@@ -870,17 +886,11 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
       return;
    }
 
-   if (idx >= OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS || !obcps[idx].loaded)
-   {
-      workers[worker_id].used = false;
-      return;
-   }
-
    /* Bind this thread's TLS slot on every do_work entry.  On Linux this is a
     * no-op; on RTEMS/FreeRTOS it is idempotent after the first call. */
    obcp_engine_tls_bind();
    obcps[idx].status = OBCP_Execution_Status_active_and_running;
-   
+
 
    DEBUG_PRINT("DO WORK Worker[%d] PID %d\n", worker_id, pid);
 
