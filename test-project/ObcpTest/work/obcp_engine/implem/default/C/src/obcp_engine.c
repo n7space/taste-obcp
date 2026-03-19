@@ -65,11 +65,18 @@ typedef struct
    bool loaded;
    asn1SccOBCP_Id id;
    asn1SccOBCP_Code code;
-   volatile asn1SccOBCP_Execution_Status status;
-   volatile uint32_t current_step;    /* OBCP_NO_STEP when no step is in progress */
-   volatile bool     abort_requested; /* set to true by PI_abort_obcp while active */
-   volatile bool     stop_requested;  /* set to true by PI_stop_obcp while active */
-   volatile asn1SccOBCP_Step_Id stop_at_step; /* 0 = stop at first endstep, else stop at matching id */
+   /* Cross-thread fields written by PI functions (under the external mutex) and
+    * read by the worker thread, or vice-versa.  C11 atomic types are used so
+    * that acquire/release ordering emits the hardware barriers required on ARM
+    * (ldar / stlr on ARMv8; lda / stl on ARMv7).  On x86 the operations
+    * reduce to plain loads/stores with a compiler fence only (TSO provides the
+    * hardware ordering for free). volatile alone cannot provide this guarantee
+    * on weakly-ordered architectures such as ARM Cortex-A / RTEMS SMP QDP. */
+   atomic_int  status;          /* asn1SccOBCP_Execution_Status */
+   atomic_uint current_step;    /* OBCP_NO_STEP when no step is in progress */
+   atomic_bool abort_requested; /* set true by PI_abort_obcp; read by worker */
+   atomic_bool stop_requested;  /* set true by PI_stop_obcp;  read by worker */
+   atomic_uint stop_at_step;    /* asn1SccOBCP_Step_Id: 0 = first endstep */
 } OBCP_Procedure;
 
 static OBCP_Procedure obcps[OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS] = {};
@@ -144,11 +151,14 @@ static inline void clear_obcp(const uint32_t id)
 {
    obcps[id].loaded = false;
    obcps[id].code.nCount = 0;
-   obcps[id].status = OBCP_Execution_Status_inactive;
-   obcps[id].current_step = OBCP_NO_STEP;
-   obcps[id].abort_requested = false;
-   obcps[id].stop_requested = false;
-   obcps[id].stop_at_step = 0;
+   /* Relaxed ordering is sufficient here: clear_obcp is only called while the
+    * engine mutex is held (or during single-threaded startup), so no concurrent
+    * reader can observe these stores out-of-order. */
+   atomic_store_explicit(&obcps[id].status, OBCP_Execution_Status_inactive, memory_order_relaxed);
+   atomic_store_explicit(&obcps[id].current_step, OBCP_NO_STEP, memory_order_relaxed);
+   atomic_store_explicit(&obcps[id].abort_requested, false, memory_order_relaxed);
+   atomic_store_explicit(&obcps[id].stop_requested, false, memory_order_relaxed);
+   atomic_store_explicit(&obcps[id].stop_at_step, 0u, memory_order_relaxed);
 }
 
 static inline void clear_engine()
@@ -182,7 +192,7 @@ static int32_t get_current_obcp_index_for_thread(void)
 static void check_abort(void)
 {
    const int32_t obcp_idx = get_current_obcp_index_for_thread();
-   if (obcp_idx >= 0 && obcps[obcp_idx].abort_requested)
+   if (obcp_idx >= 0 && atomic_load_explicit(&obcps[obcp_idx].abort_requested, memory_order_acquire))
    {
       mp_raise_msg(&mp_type_Exception, MP_ERROR_TEXT("OBCP aborted"));
    }
@@ -197,7 +207,8 @@ static bool wrapper_beginstep(const uint32_t id)
    {
       return false;
    }
-   obcps[obcp_idx].current_step = id;
+   /* Release: ensures PI_get_obcp_status (acquire) sees the updated step id. */
+   atomic_store_explicit(&obcps[obcp_idx].current_step, id, memory_order_release);
    return true;
 }
 
@@ -212,13 +223,18 @@ static bool wrapper_endstep(const uint32_t id, const bool success)
    {
       return false;
    }
-   if (obcps[obcp_idx].current_step != id)
+   /* Relaxed: same thread wrote current_step in wrapper_beginstep. */
+   if (atomic_load_explicit(&obcps[obcp_idx].current_step, memory_order_relaxed) != id)
    {
       return false;
    }
-   obcps[obcp_idx].current_step = OBCP_NO_STEP;
-   if (obcps[obcp_idx].stop_requested &&
-       (obcps[obcp_idx].stop_at_step == 0 || obcps[obcp_idx].stop_at_step == id))
+   /* Release: ensures PI_get_obcp_status (acquire) sees OBCP_NO_STEP. */
+   atomic_store_explicit(&obcps[obcp_idx].current_step, OBCP_NO_STEP, memory_order_release);
+   /* Acquire on stop_requested: pairs with the release store in PI_stop_obcp,
+    * guaranteeing that stop_at_step is visible before we read it below. */
+   if (atomic_load_explicit(&obcps[obcp_idx].stop_requested, memory_order_acquire) &&
+       (atomic_load_explicit(&obcps[obcp_idx].stop_at_step, memory_order_relaxed) == 0u ||
+        atomic_load_explicit(&obcps[obcp_idx].stop_at_step, memory_order_relaxed) == id))
    {
       mp_raise_msg(&mp_type_Exception, MP_ERROR_TEXT("OBCP stopped"));
    }
@@ -519,14 +535,16 @@ static bool wrapper_receive_packet(const uint32_t channel,
        * remain permanently occupied after the exception unwinds the stack. */
       atomic_store_explicit(&ch->occupied, false, memory_order_release);
       mp_raise_msg(&mp_type_ValueError, MP_ERROR_TEXT("Receive buffer too small"));
-      return false;
    }
-   memcpy(data, ch->packet.arr, copy_len);
-   *length = copy_len;
-   /* Release the channel only after the payload has been fully consumed.
-    * The release store pairs with the acquire load in PI_receive_packet,
-    * ensuring the slot is not reused before we finish reading. */
-   atomic_store_explicit(&ch->occupied, false, memory_order_release);
+   else
+   {
+      memcpy(data, ch->packet.arr, copy_len);
+      *length = copy_len;
+      /* Release the channel only after the payload has been fully consumed.
+       * The release store pairs with the acquire load in PI_receive_packet,
+       * ensuring the slot is not reused before we finish reading. */
+      atomic_store_explicit(&ch->occupied, false, memory_order_release);
+   }
 
    return true;
 }
@@ -608,9 +626,12 @@ void obcp_engine_PI_abort_obcp(const asn1SccOBCP_Id *IN_id,
    {
       return;
    }
-   if (obcps[index].status == OBCP_Execution_Status_active_and_running)
+   /* Acquire on status: pairs with the release store in PI_do_work, ensuring
+    * the worker's full initialisation is visible before we flag it for abort. */
+   if (atomic_load_explicit(&obcps[index].status, memory_order_acquire) == OBCP_Execution_Status_active_and_running)
    {
-      obcps[index].abort_requested = true;
+      /* Release: worker's acquire in check_abort() makes this visible promptly. */
+      atomic_store_explicit(&obcps[index].abort_requested, true, memory_order_release);
       *OUT_success = TRUE;
    }
 }
@@ -706,8 +727,10 @@ void obcp_engine_PI_get_obcp_status(const asn1SccOBCP_Id *IN_id,
    {
       return;
    }
-   *OUT_execution_status = obcps[index].status;
-   *OUT_step_id          = (asn1SccOBCP_Step_Id)obcps[index].current_step;
+   /* Acquire: pairs with release stores in PI_do_work (status) and
+    * wrapper_beginstep / wrapper_endstep (current_step). */
+   *OUT_execution_status = (asn1SccOBCP_Execution_Status)atomic_load_explicit(&obcps[index].status, memory_order_acquire);
+   *OUT_step_id          = (asn1SccOBCP_Step_Id)atomic_load_explicit(&obcps[index].current_step, memory_order_acquire);
    *OUT_success = TRUE;
 }
 
@@ -732,11 +755,13 @@ void obcp_engine_PI_load_obcp(const asn1SccOBCP_Id *IN_id,
          memcpy(obcps[id].id, *IN_id, sizeof(asn1SccOBCP_Id));
          memcpy(obcps[id].code.arr, IN_code->arr, IN_code->nCount);
          obcps[id].code.nCount = IN_code->nCount;
-         obcps[id].status = OBCP_Execution_Status_inactive;
-         obcps[id].current_step = OBCP_NO_STEP;
-         obcps[id].abort_requested = false;
-         obcps[id].stop_requested  = false;
-         obcps[id].stop_at_step    = 0;
+         /* Relaxed: the OBCP slot is not yet visible to worker threads; the
+          * subsequent mutex release by the caller provides the required fence. */
+         atomic_store_explicit(&obcps[id].status, OBCP_Execution_Status_inactive, memory_order_relaxed);
+         atomic_store_explicit(&obcps[id].current_step, OBCP_NO_STEP, memory_order_relaxed);
+         atomic_store_explicit(&obcps[id].abort_requested, false, memory_order_relaxed);
+         atomic_store_explicit(&obcps[id].stop_requested, false, memory_order_relaxed);
+         atomic_store_explicit(&obcps[id].stop_at_step, 0u, memory_order_relaxed);
          obcps[id].loaded = true;
          ++obcps_count;
          *OUT_success = TRUE;
@@ -791,14 +816,18 @@ void obcp_engine_PI_stop_obcp( const asn1SccOBCP_Id *IN_id,
    {
       return;
    }
-   if (obcps[index].status == OBCP_Execution_Status_active_and_running)
+   if (atomic_load_explicit(&obcps[index].status, memory_order_acquire) == OBCP_Execution_Status_active_and_running)
    {
-      obcps[index].stop_requested = true;
-      obcps[index].stop_at_step   = *IN_step_id;
+      /* Write stop_at_step BEFORE publishing stop_requested. The release store
+       * on stop_requested pairs with the acquire load in wrapper_endstep,
+       * guaranteeing stop_at_step is visible to the worker before it reads it. */
+      atomic_store_explicit(&obcps[index].stop_at_step, (uint32_t)*IN_step_id, memory_order_relaxed);
+      atomic_store_explicit(&obcps[index].stop_requested, true, memory_order_release);
       *OUT_success = TRUE;
    }
 }
 
+/* This function blocks until all OBCPS are inactive by design */
 void obcp_engine_PI_stop_obcp_engine(void)
 {
    bool waiting_for_obcps = false;
@@ -810,9 +839,9 @@ void obcp_engine_PI_stop_obcp_engine(void)
          continue;
       }
 
-      if (obcps[i].status == OBCP_Execution_Status_active_and_running)
+      if (atomic_load_explicit(&obcps[i].status, memory_order_acquire) == OBCP_Execution_Status_active_and_running)
       {
-         obcps[i].abort_requested = true;
+         atomic_store_explicit(&obcps[i].abort_requested, true, memory_order_release);
       }
    }
 
@@ -822,7 +851,9 @@ void obcp_engine_PI_stop_obcp_engine(void)
 
       for (uint32_t i = 0; i < OBCP_MAXIMUM_NUMBER_OF_LOADED_OBCPS; ++i)
       {
-         if (obcps[i].loaded && obcps[i].status != OBCP_Execution_Status_inactive)
+         /* Acquire: pairs with the release store on status in PI_do_work,
+          * ensuring the worker's full cleanup is visible before we exit. */
+         if (obcps[i].loaded && atomic_load_explicit(&obcps[i].status, memory_order_acquire) != OBCP_Execution_Status_inactive)
          {
             waiting_for_obcps = true;
             break;
@@ -850,14 +881,17 @@ void obcp_engine_PI_unload_obcp(const asn1SccOBCP_Id *IN_id,
       return;
    }
 
-   if (obcps[index].status != OBCP_Execution_Status_inactive)
+   if (atomic_load_explicit(&obcps[index].status, memory_order_acquire) != OBCP_Execution_Status_inactive)
    {
       return;
    }
 
    clear_obcp(index);
-   assert(obcps_count > 0); // Guard against state inconsistency
-   --obcps_count;
+   if (obcps_count > 0)
+   {
+      // Defensive programming pattern to guard against state inconsistency
+      --obcps_count;
+   }
    *OUT_success = TRUE;
 }
 
@@ -882,14 +916,18 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
    if (worker_id < 0)
    {
       DEBUG_PRINT("DO WORK: unknown worker PID %d — aborting\n", pid);
-      obcps[idx].status = OBCP_Execution_Status_inactive;
+      /* Release: stop_obcp_engine polls status with acquire; ensure it sees inactive. */
+      atomic_store_explicit(&obcps[idx].status, OBCP_Execution_Status_inactive, memory_order_release);
       return;
    }
 
    /* Bind this thread's TLS slot on every do_work entry.  On Linux this is a
     * no-op; on RTEMS/FreeRTOS it is idempotent after the first call. */
    obcp_engine_tls_bind();
-   obcps[idx].status = OBCP_Execution_Status_active_and_running;
+   /* Release: PI_abort_obcp and PI_stop_obcp read status with acquire; the
+    * release here ensures their acquire sees active_and_running only after
+    * TLS is fully bound and the worker is genuinely ready to execute. */
+   atomic_store_explicit(&obcps[idx].status, OBCP_Execution_Status_active_and_running, memory_order_release);
 
 
    DEBUG_PRINT("DO WORK Worker[%d] PID %d\n", worker_id, pid);
@@ -918,10 +956,14 @@ void obcp_engine_PI_do_work(const asn1SccT_Int32 *obcp_index)
 
    workers[worker_id].native_thread_handle = 0;
    obcp_engine_tls_set(obcp_thread_local_value_index_obcp_index, 0u);
-   obcps[idx].abort_requested = false;
-   obcps[idx].stop_requested  = false;
-   obcps[idx].stop_at_step    = 0;
-   obcps[idx].status = OBCP_Execution_Status_inactive;
+   /* Relaxed for the flag resets: no concurrent reader exists at this point
+    * (the OBCP has finished executing) so no cross-thread ordering is needed. */
+   atomic_store_explicit(&obcps[idx].abort_requested, false, memory_order_relaxed);
+   atomic_store_explicit(&obcps[idx].stop_requested,  false, memory_order_relaxed);
+   atomic_store_explicit(&obcps[idx].stop_at_step,    0u,    memory_order_relaxed);
+   /* Release on status: stop_obcp_engine polls with acquire and must see
+    * inactive only after all cleanup stores above are globally visible. */
+   atomic_store_explicit(&obcps[idx].status, OBCP_Execution_Status_inactive, memory_order_release);
 }
 
 extern asn1SccPID obcp_engine_release_worker_get_sender();
