@@ -75,8 +75,11 @@ void obcp_engine_tls_bind(void)
    uint32_t slot = atomic_fetch_add(&tls_pool_used, 1u);
    if (slot >= OBCP_ENGINE_TLS_MAX_THREADS)
    {
-      /* Pool exhausted — programming error, no recovery possible. */
-      return;
+      /* Pool exhausted — programming error, no recovery possible.
+       * Roll back the counter so the overflow value does not permanently
+       * consume a logical slot, then halt via the RTEMS fatal handler. */
+      atomic_fetch_sub(&tls_pool_used, 1u);
+      rtems_fatal(RTEMS_FATAL_SOURCE_APPLICATION, 1u);
    }
 
    _Thread_Get_executing()->Start.Entry.Kinds.Numeric.argument =
@@ -148,7 +151,12 @@ void obcp_engine_tls_bind(void)
    uint32_t slot = atomic_fetch_add(&tls_pool_used, 1u);
    if (slot >= OBCP_ENGINE_TLS_MAX_THREADS)
    {
-      return;
+      /* Pool exhausted — programming error, no recovery possible.
+       * Roll back the counter so the overflow value does not permanently
+       * consume a logical slot, then halt via the FreeRTOS fatal hook. */
+      atomic_fetch_sub(&tls_pool_used, 1u);
+      configASSERT(slot < OBCP_ENGINE_TLS_MAX_THREADS);
+      for (;;) {} /* unreachable safety net if configASSERT is a no-op in release */
    }
 
    vTaskSetThreadLocalStoragePointer(NULL, OBCP_FREERTOS_TLS_SLOT_INDEX,
