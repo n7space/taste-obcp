@@ -2,6 +2,7 @@
 *.pro.user
 .qtc_clangd
 work/taste.pro
+work/glue_release
 work/Debug
 work/Dump
 work/Makefile
