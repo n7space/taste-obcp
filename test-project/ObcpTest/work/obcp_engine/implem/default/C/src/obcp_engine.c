@@ -540,6 +540,9 @@ static bool wrapper_receive_packet(const uint32_t channel,
       }
    }
 
+   /* mp_raise_msg does not return, but just in case, ensure that false is returned without raising
+      compiler warnings about dead code. */
+   bool result = false;
    /* Consume the buffered packet. */
    uint32_t copy_len = (uint32_t)ch->packet.nCount;
    if (*length < copy_len)
@@ -557,9 +560,10 @@ static bool wrapper_receive_packet(const uint32_t channel,
        * The release store pairs with the acquire load in PI_receive_packet,
        * ensuring the slot is not reused before we finish reading. */
       atomic_store_explicit(&ch->occupied, false, memory_order_release);
+      result = true;
    }
 
-   return true;
+   return result;
 }
 
 /* Compare two OBCP ids without relying on null termination. */
