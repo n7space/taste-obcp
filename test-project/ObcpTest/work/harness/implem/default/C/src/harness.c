@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <time.h>
 #include <unistd.h>
+#include <assert.h>
 
 extern int32_t  Hal_SemaphoreCreate(void);
 extern bool     Hal_SemaphoreObtain(int32_t id);
@@ -342,7 +343,7 @@ void harness_PI_set_parameter_value
        const asn1SccOBCP_Parameter_Value *IN_parameter_value)
 
 {
-   int empty = -1;
+   int free_slot_index = -1;
 
    harness_lock_state();
    for (int i = 0; i < PARAM_STORE_SIZE; i++) {
@@ -351,14 +352,14 @@ void harness_PI_set_parameter_value
          harness_unlock_state();
          return;
       }
-      if (!param_store[i].valid && empty < 0) {
-         empty = i;
+      if (!param_store[i].valid && free_slot_index < 0) {
+         free_slot_index = i;
       }
    }
-   if (empty >= 0) {
-      param_store[empty].id    = *IN_id;
-      param_store[empty].value = *IN_parameter_value;
-      param_store[empty].valid = true;
+   if (free_slot_index >= 0) {
+      param_store[free_slot_index].id    = *IN_id;
+      param_store[free_slot_index].value = *IN_parameter_value;
+      param_store[free_slot_index].valid = true;
    } else {
       harness_error_printf("Parameter store ERROR: no free slot for parameter ID=%u\n",
                            (unsigned)*IN_id);
@@ -996,6 +997,7 @@ typedef enum {
    PHASE_STOP_TEST_RUNNING,
    PHASE_STOP_TEST_WAIT,
    PHASE_PRECOMPILED_TEST,
+   PHASE_END
 } Harness_Phase;
 
 static Harness_Phase harness_phase = PHASE_INIT;
@@ -1009,9 +1011,10 @@ static Harness_Phase harness_get_phase(void)
    return harness_phase;
 }
 
-static void harness_set_phase(Harness_Phase phase)
+static void harness_go_to_next_phase()
 {
-   harness_phase = phase;
+   assert(harness_phase < PHASE_END);
+   harness_phase = (Harness_Phase)(((int32_t)harness_phase) + 1);
 }
 
 static bool harness_phase_has_timeout(Harness_Phase phase)
@@ -1113,7 +1116,7 @@ void harness_PI_trigger(void)
          if (!activate_obcp(&OBCP_IOTEST)) return;
 
          printf("IO write test OBCP activated\n");
-         harness_set_phase(PHASE_IO_WRITE_TEST);
+         harness_go_to_next_phase();
          break;
       }
 
@@ -1157,7 +1160,7 @@ void harness_PI_trigger(void)
             if (!activate_obcp(&OBCP_DPTEST)) return;
 
             printf("Datapool test OBCP activated\n");
-            harness_set_phase(PHASE_DATAPOOL_TEST);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1200,7 +1203,7 @@ void harness_PI_trigger(void)
             if (!activate_obcp(&OBCP_EVTEST)) return;
 
             printf("Events test OBCP activated\n");
-            harness_set_phase(PHASE_EVENTS_TEST);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1253,7 +1256,7 @@ void harness_PI_trigger(void)
             if (!activate_obcp(&OBCP_STEPTEST)) return;
 
             printf("Step test OBCP activated\n");
-            harness_set_phase(PHASE_STEP_TEST_WAIT_STEP4);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1273,7 +1276,7 @@ void harness_PI_trigger(void)
             one_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
             one_val.u.int_value = 1;
             harness_PI_set_parameter_value(&unblock_id, &one_val);
-            harness_set_phase(PHASE_STEP_TEST_COMPLETE);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1322,7 +1325,7 @@ void harness_PI_trigger(void)
             if (!activate_obcp(&OBCP_TEST2)) return;
 
             printf("TEST1 (3 s) and TEST2 (5 s) activated\n");
-            harness_set_phase(PHASE_CONCURRENCY_WAIT_TEST1);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1347,7 +1350,7 @@ void harness_PI_trigger(void)
             printf("TEST1 finished — activating TEST3 (3 s)\n");
             unload_obcp(&OBCP_TEST1);
             if (!activate_obcp(&OBCP_TEST3)) return;
-            harness_set_phase(PHASE_CONCURRENCY_ALL_RUNNING);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1389,7 +1392,7 @@ void harness_PI_trigger(void)
 
             printf("Gettime test OBCP activated (waiting %d ms)\n",
                    TIMETEST_WAIT_MS);
-            harness_set_phase(PHASE_GETTIME_TEST);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1427,7 +1430,7 @@ void harness_PI_trigger(void)
 
             printf("Gettime test finished\n");
             unload_obcp(&OBCP_TIMETEST);
-            harness_set_phase(PHASE_PACKETS_INIT);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1474,7 +1477,7 @@ void harness_PI_trigger(void)
          if (!activate_obcp(&OBCP_PKTSEND)) return;
 
          printf("Packets test OBCPs activated (PKTRECV + PKTSEND running concurrently)\n");
-         harness_set_phase(PHASE_PACKETS_RUNNING);
+         harness_go_to_next_phase();
          break;
       }
 
@@ -1557,7 +1560,7 @@ void harness_PI_trigger(void)
             if (!load_obcp(&OBCP_ABORTTEST)) return;
             if (!activate_obcp(&OBCP_ABORTTEST)) return;
             printf("Abort test OBCP activated (infinite loop)\n");
-            harness_set_phase(PHASE_ABORT_TEST_RUNNING);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1571,7 +1574,7 @@ void harness_PI_trigger(void)
             printf("Abort test: OBCP is active_and_running \u2014 sending abort\n");
             abort_obcp(&OBCP_ABORTTEST);
             abort_test_wait_ticks = 0u;
-            harness_set_phase(PHASE_ABORT_TEST_WAIT);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1617,7 +1620,7 @@ void harness_PI_trigger(void)
             if (!load_obcp(&OBCP_STOPTEST)) return;
             if (!activate_obcp(&OBCP_STOPTEST)) return;
             printf("Stop test OBCP activated\n");
-            harness_set_phase(PHASE_STOP_TEST_RUNNING);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1637,7 +1640,7 @@ void harness_PI_trigger(void)
             one_val.kind        = OBCP_Parameter_Value_int_value_PRESENT;
             one_val.u.int_value = 1;
             harness_PI_set_parameter_value(&unblock_id, &one_val);
-            harness_set_phase(PHASE_STOP_TEST_WAIT);
+            harness_go_to_next_phase();
          }
          break;
       }
@@ -1699,7 +1702,7 @@ void harness_PI_trigger(void)
             if (!load_precompiled_obcp(&OBCP_PRECOMPILED_TEST)) return;
             if (!activate_precompiled_obcp(&OBCP_PRECOMPILED_TEST)) return;
             printf("Precompiled OBCP test activated\n");
-            harness_set_phase(PHASE_PRECOMPILED_TEST);
+            harness_go_to_next_phase();
          }
          break;
       }
