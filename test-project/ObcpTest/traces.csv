@@ -1,0 +1,24 @@
+REQUIREMENT ID; TEST FOLDERS; TESTS
+MBEP-FUN-470; loading OBCP; ALL
+MBEP-FUN-480; defining the number of OBCP; T_LOAD_LIMIT
+MBEP-FUN-490; unloading an OBCP; ALL
+MBEP-FUN-500; activating an OBCP; ALL
+MBEP-FUN-510; executing OBCPs concurrently; T_CONCURRENCY
+MBEP-FUN-520; stopping an OBCP; T_STOP
+MBEP-FUN-530; aborting an OBCP; T_ABORT
+MBEP-FUN-540; querying the status of an OBCP; T_CONCURRENCY
+MBEP-FUN-550; waiting within OBCP the given amount of time; T_GETTIME
+MBEP-FUN-560; waiting within OBCP for a packet; T_PKT_ENV_RECV, T_PKT_INTER_OBCP
+MBEP-IF-310; reading parameters in OBCP; T_DATAPOOL
+MBEP-IF-320; writing parameters in OBCP; T_DATAPOOL
+MBEP-IF-330; accessing integer parameters in OBCP; T_DATAPOOL
+MBEP-IF-340; accessing enumerated parameters in OBCP; T_DATAPOOL
+MBEP-IF-350; accessing float parameters in OBCP; T_DATAPOOL
+MBEP-IF-360; accessing boolean parameters in OBCP; T_DATAPOOL
+MBEP-IF-370; accessing time in OBCP; T_GETTIME
+MBEP-IF-380; receiving packets (requests); T_PKT_ENV_RECV, T_PKT_INTER_OBCP, T_PKT_NONBLOCKING
+MBEP-IF-390; sending packets (requests); T_PKT_INTER_OBCP, T_PKT_CANSEND
+MBEP-IF-400; sending packets (reports); T_PKT_ENV_SEND, T_PKT_CANSEND
+MBEP-IF-410; sending events; T_EVENTS
+MBEP-IF-420; defining steps within OBCP; T_STEP_CONTROL, T_STOP
+MBEP-IF-430; writing text from OBCP; T_IO_WRITE
