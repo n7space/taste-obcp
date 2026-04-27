@@ -1,0 +1,46 @@
+<InterfaceView version="1.2" componentURL="/home/taste/.local/share/QtProject/QtCreator/components_library/.git_bares/obcp_engine_worker_bare">
+<Function id="{c8cefaea-8155-483b-87f5-fe65dba6d893}" name="obcp_engine_worker" is_type="NO" language="SDL" default_implementation="default" fixed_system_element="NO" required_system_element="NO" instances_max="1" startup_priority="1" instances_min="1">
+    <Property name="TASTE_IV_Properties::Default_Codegen" value="C"/>
+<Provided_Interface id="{3bc4c417-30af-4711-b4b5-3d24bd5a2a55}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Provided_Interface id="{23f5d458-b885-4f63-a54e-0507f18aaee5}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" stack_size="1024" miat="0" priority="1" queue_size="1" wcet="0">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Required_Interface id="{56c6b2fd-f1ab-4468-9a03-7886f0bfb567}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{057efefd-c938-46ba-ae3c-d6f604a69d99}" name="release_worker" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="true"/>
+</Required_Interface>
+
+<Required_Interface id="{f943c1e3-d4d8-401c-8126-92f429a24e5c}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" is_observable="false" wcet="0" is_alarm="false">
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+    <Implementations>
+        <Implementation name="default" language="SDL"/>
+    </Implementations>
+</Function>
+<UI version="1.0" ><Entity id="{c8cefaea-8155-483b-87f5-fe65dba6d893}"><Taste coordinates="92000 0 112000 17000">
+</Taste>
+</Entity><Entity id="{3bc4c417-30af-4711-b4b5-3d24bd5a2a55}"><Taste coordinates="92000 5000">
+</Taste>
+</Entity><Entity id="{23f5d458-b885-4f63-a54e-0507f18aaee5}"><Taste coordinates="92000 8000">
+</Taste>
+</Entity><Entity id="{56c6b2fd-f1ab-4468-9a03-7886f0bfb567}"><Taste coordinates="92000 11000">
+</Taste>
+</Entity><Entity id="{057efefd-c938-46ba-ae3c-d6f604a69d99}"><Taste coordinates="92000 15000">
+</Taste>
+</Entity><Entity id="{f943c1e3-d4d8-401c-8126-92f429a24e5c}"><Taste coordinates="92000 1700">
+</Taste>
+</Entity>
+</UI>
+
+</InterfaceView>

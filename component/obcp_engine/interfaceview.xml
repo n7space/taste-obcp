@@ -1,0 +1,176 @@
+<InterfaceView version="1.2" componentURL="/home/taste/.local/share/QtProject/QtCreator/components_library/.git_bares/obcp_engine_bare">
+<Function id="{68cc4145-446f-4e64-9cb8-07fc3b2451a6}" name="obcp_engine" is_type="NO" language="C" default_implementation="default" fixed_system_element="NO" required_system_element="NO" startup_priority="1" instances_max="1" instances_min="1">
+    <Property name="TASTE_IV_Properties::Default_Codegen" value="Ada"/>
+<Provided_Interface id="{77676299-cb17-4731-80f0-9d766b44dc73}" name="start_obcp_engine" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Provided_Interface id="{e3826886-6e24-4c2f-94b4-d793bc14e0b1}" name="stop_obcp_engine" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Provided_Interface id="{c7c5a133-8171-4b7f-8790-b297168d6319}" name="can_obcp_be_loaded" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{a4900f71-f33d-4f07-926b-511435b48b28}" name="can_obcp_be_activated" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{62cd7704-4981-4984-8f8c-8e4209e9d344}" name="load_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Input_Parameter name="code" type="OBCP-Code" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{c1f10504-4c41-4dd2-9c23-e7b2689bb7ee}" name="unload_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{2dbe3a05-1a35-4dba-9ec0-67a57375144e}" name="activate_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{50a7c846-e8c5-453c-a30a-1c42ab04e2bb}" name="abort_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{edb3ade6-30e8-4b00-83a7-21e6036bfe04}" name="get_obcp_status" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Output_Parameter name="execution_status" type="OBCP-Execution-Status" encoding="NATIVE"/>
+    <Output_Parameter name="step_id" type="OBCP-Step-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{b4daae4b-6be3-4ece-a81d-030e1bc5be39}" name="receive_packet" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="channel" type="OBCP-Channel-Id" encoding="NATIVE"/>
+    <Input_Parameter name="packet" type="OBCP-Packet" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{d88464de-9338-4ea9-b4b6-c8357a470fb8}" name="stop_obcp" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Id" encoding="NATIVE"/>
+    <Input_Parameter name="step_id" type="OBCP-Step-Id" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{972f56ab-03d6-4853-853a-f56daef1ba58}" name="do_work" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0" is_alarm="false" is_observable="false">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+</Provided_Interface>
+
+<Provided_Interface id="{b63664a3-2b1f-48e9-9822-93f846429bf4}" name="register_worker" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0" is_alarm="false" is_observable="false">
+</Provided_Interface>
+
+<Provided_Interface id="{577c3b48-b1a2-4e72-8901-a321940c7ef6}" name="release_worker" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+</Provided_Interface>
+
+<Required_Interface id="{2be8a91b-fed2-448a-b271-b23e3cd1f41e}" name="send_packet" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="channel" type="OBCP-Channel-Id" encoding="NATIVE"/>
+    <Input_Parameter name="packet" type="OBCP-Packet" encoding="NATIVE"/>
+    <Output_Parameter name="success" type="T-Boolean" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{afaa4a14-587a-41a9-abfd-9ba9cd91d12a}" name="output_message" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="text" type="OBCP-Text" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{5b2d4f70-e270-40d5-96e3-c4fc1d58f034}" name="send_event" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Event-Id" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{53cf1488-6683-41b4-a070-8256f0be55f0}" name="get_current_time" kind="Unprotected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0" is_alarm="false" is_observable="false">
+    <Output_Parameter name="seconds" type="T-Int32" encoding="NATIVE"/>
+    <Output_Parameter name="milliseconds" type="T-Int32" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{625f6565-87c7-474a-b247-c652539b9c3c}" name="get_parameter_value" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Parameter-Id" encoding="NATIVE"/>
+    <Input_Parameter name="parameter_type" type="OBCP-Parameter-Type" encoding="NATIVE"/>
+    <Output_Parameter name="parameter_value" type="OBCP-Parameter-Value" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{a5a77fc6-9db8-46b2-a07b-e4d4b6e73359}" name="set_parameter_value" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Input_Parameter name="id" type="OBCP-Parameter-Id" encoding="NATIVE"/>
+    <Input_Parameter name="parameter_value" type="OBCP-Parameter-Value" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{527ff70f-2939-420b-b4b5-38722e351ea6}" name="activate_worker" kind="Sporadic" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" miat="0" stack_size="1024" wcet="0" priority="1" queue_size="1">
+    <Input_Parameter name="obcp_index" type="T-Int32" encoding="NATIVE"/>
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+<Required_Interface id="{6a8c6cc2-da9e-4545-961e-45bc1ea5f629}" name="initiate_registration" kind="Protected" enable_multicast="true" layer="default" required_system_element="NO" is_simulink_interface="false" wcet="0">
+    <Property name="Taste::InheritPI" value="true"/>
+    <Property name="Taste::Autonamed" value="false"/>
+</Required_Interface>
+
+    <Implementations>
+        <Implementation name="default" language="C"/>
+    </Implementations>
+</Function>
+<UI version="1.0" ><Entity id="{68cc4145-446f-4e64-9cb8-07fc3b2451a6}"><Taste coordinates="45000 0 65000 56000">
+</Taste>
+</Entity><Entity id="{77676299-cb17-4731-80f0-9d766b44dc73}"><Taste coordinates="45000 16000">
+</Taste>
+</Entity><Entity id="{e3826886-6e24-4c2f-94b4-d793bc14e0b1}"><Taste coordinates="45000 19000">
+</Taste>
+</Entity><Entity id="{c7c5a133-8171-4b7f-8790-b297168d6319}"><Taste coordinates="45000 24000">
+</Taste>
+</Entity><Entity id="{a4900f71-f33d-4f07-926b-511435b48b28}"><Taste coordinates="45000 27000">
+</Taste>
+</Entity><Entity id="{62cd7704-4981-4984-8f8c-8e4209e9d344}"><Taste coordinates="45000 31000">
+</Taste>
+</Entity><Entity id="{c1f10504-4c41-4dd2-9c23-e7b2689bb7ee}"><Taste coordinates="45000 34300">
+</Taste>
+</Entity><Entity id="{2dbe3a05-1a35-4dba-9ec0-67a57375144e}"><Taste coordinates="45000 38000">
+</Taste>
+</Entity><Entity id="{50a7c846-e8c5-453c-a30a-1c42ab04e2bb}"><Taste coordinates="45000 41000">
+</Taste>
+</Entity><Entity id="{edb3ade6-30e8-4b00-83a7-21e6036bfe04}"><Taste coordinates="45000 48000">
+</Taste>
+</Entity><Entity id="{b4daae4b-6be3-4ece-a81d-030e1bc5be39}"><Taste coordinates="45000 53000">
+</Taste>
+</Entity><Entity id="{d88464de-9338-4ea9-b4b6-c8357a470fb8}"><Taste coordinates="45000 44000">
+</Taste>
+</Entity><Entity id="{972f56ab-03d6-4853-853a-f56daef1ba58}"><Taste coordinates="65000 11000">
+</Taste>
+</Entity><Entity id="{b63664a3-2b1f-48e9-9822-93f846429bf4}"><Taste coordinates="65000 2000">
+</Taste>
+</Entity><Entity id="{577c3b48-b1a2-4e72-8901-a321940c7ef6}"><Taste coordinates="65000 15000">
+</Taste>
+</Entity><Entity id="{2be8a91b-fed2-448a-b271-b23e3cd1f41e}"><Taste coordinates="65000 53000">
+</Taste>
+</Entity><Entity id="{afaa4a14-587a-41a9-abfd-9ba9cd91d12a}"><Taste coordinates="65000 48000">
+</Taste>
+</Entity><Entity id="{5b2d4f70-e270-40d5-96e3-c4fc1d58f034}"><Taste coordinates="65000 43000">
+</Taste>
+</Entity><Entity id="{53cf1488-6683-41b4-a070-8256f0be55f0}"><Taste coordinates="65000 35000">
+</Taste>
+</Entity><Entity id="{625f6565-87c7-474a-b247-c652539b9c3c}"><Taste coordinates="65000 27000">
+</Taste>
+</Entity><Entity id="{a5a77fc6-9db8-46b2-a07b-e4d4b6e73359}"><Taste coordinates="65000 24000">
+</Taste>
+</Entity><Entity id="{527ff70f-2939-420b-b4b5-38722e351ea6}"><Taste coordinates="65000 8000">
+</Taste>
+</Entity><Entity id="{6a8c6cc2-da9e-4545-961e-45bc1ea5f629}"><Taste coordinates="65000 5000">
+</Taste>
+</Entity>
+</UI>
+
+</InterfaceView>
