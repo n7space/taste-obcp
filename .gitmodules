@@ -1,3 +1,3 @@
 [submodule "n7s-obcp"]
 	path = n7s-obcp
-	url = git@github.com:n7space/n7s-obcp.git
+	url = https://github.com/n7space/n7s-obcp.git
