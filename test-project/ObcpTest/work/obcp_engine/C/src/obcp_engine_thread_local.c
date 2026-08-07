@@ -59,6 +59,9 @@ void obcp_engine_tls_set(uint32_t index, uintptr_t value)
 #elif defined(RTEMS_5) || defined(RTEMS_6)
 
 #include <rtems.h>
+#include <rtems/score/thread.h>
+#include <rtems/score/percpu.h>
+#include <rtems/score/threadimpl.h>
 #include <stdatomic.h>
 #include <string.h>
 
